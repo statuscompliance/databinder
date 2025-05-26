@@ -1,0 +1,37 @@
+{
+  "name": "databinder",
+  "version": "1.0.0",
+  "description": "A TypeScript library to simplify integration with data sources",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint . --max-warnings=0 --cache --cache-location node_modules/.cache/eslint",
+    "format": "eslint . --fix --max-warnings=0 --cache --cache-location node_modules/.cache/eslint",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "data",
+    "integration",
+    "datasource",
+    "api",
+    "binding"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@commitlint/cli": "19.8.1",
+    "@commitlint/config-conventional": "19.8.1",
+    "@eslint/js": "9.27.0",
+    "@evilmartians/lefthook": "1.11.13",
+    "@stylistic/eslint-plugin": "4.4.0",
+    "@types/node": "22.15.21",
+    "commitlint": "19.8.1",
+    "eslint": "9.27.0",
+    "ts-node": "10.9.2",
+    "typescript": "5.8.3"
+  }
+}
