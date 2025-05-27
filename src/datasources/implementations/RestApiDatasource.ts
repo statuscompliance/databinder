@@ -5,6 +5,16 @@ import { Datasource,
   PaginationOptions, 
   QueryOptions 
 } from '../types';
+import { 
+  NetworkError, 
+  AuthenticationError, 
+  InvalidConfigError,
+  NotFoundError,
+  TimeoutError,
+  isHttpError 
+} from '../../core/errors';
+import { logger } from '../../core/logger';
+import { withRetry } from '../../utils/retryUtils';
 
 export interface RestApiConfig extends DatasourceConfig {
   baseUrl: string;
@@ -41,6 +51,30 @@ export interface RestApiMethodOptions extends DatasourceMethodOptions {
     throwHttpErrors?: boolean;
   };
   responseFormat?: 'full' | 'batch' | 'iterator' | 'stream';
+  
+  /**
+   * Options for retry behavior
+   */
+  retryOptions?: {
+    /** Maximum number of retry attempts */
+    maxRetries?: number;
+    
+    /** Base delay between retries in milliseconds */
+    baseDelay?: number;
+    
+    /** Whether to use exponential backoff */
+    exponential?: boolean;
+  };
+  
+  /**
+   * HTTP method to use for the request
+   */
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
+  
+  /**
+   * Request body for POST, PUT, and PATCH requests
+   */
+  body?: any;
 }
 
 // Type definition for REST API based datasources
@@ -169,78 +203,202 @@ export function createRestApiBasedDatasource(
 
 /**
  * Fetches data from a REST API with the specified configuration and options.
+ * Includes retry logic for transient errors and standardized error handling.
  * 
  * @param config - The REST API configuration including baseUrl and authentication settings
  * @param endpoint - The endpoint to fetch data from
  * @param options - Additional options for the request including pagination, filtering, and response formatting
  * @returns A promise that resolves to the API response data
+ * @throws NetworkError, AuthenticationError, or other specific error types based on the failure
  */
 export async function fetchData(
   config: RestApiConfig,
   endpoint: string,
   options?: RestApiMethodOptions
 ): Promise<any> {
-  const finalEndpoint = options?.endpoint || endpoint;
-  const url = buildUrl(config, finalEndpoint, options?.pagination, options?.query);
-  
-  const headers = new Headers({
-    'Content-Type': 'application/json',
-    ...config.headers
-  });
+  // Extract retry options from the method options or use defaults
+  const retryOptions = {
+    maxRetries: options?.retryOptions?.maxRetries || 2,
+    baseDelay: options?.retryOptions?.baseDelay || 300,
+    timeout: config.timeout
+  };
 
-  applyAuthentication(headers, config.auth, options?.authOverride);
+  // Use withRetry to handle transient failures
+  return withRetry(async () => {
+    try {
+      logger.debug(`Making request to endpoint: ${endpoint}`, {
+        baseUrl: config.baseUrl,
+        method: options?.method || 'GET'
+      });
 
-  if (options?.headers) {
-    Object.entries(options.headers).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
-  }
+      const finalEndpoint = options?.endpoint || endpoint;
+      const url = buildUrl(config, finalEndpoint, options?.pagination, options?.query);
+      
+      const headers = new Headers({
+        'Content-Type': 'application/json',
+        ...config.headers
+      });
 
-  const cookies: string[] = [];
-  const cookieMap: Record<string, string> = {};
-  
-  if (config.auth?.type === 'cookie' && config.auth.cookies) {
-    Object.entries(config.auth.cookies).forEach(([name, value]) => {
-      cookieMap[name] = encodeURIComponent(value);
-    });
-  }
-  
-  if (options?.authOverride?.type === 'cookie' && options.authOverride.cookies) {
-    Object.entries(options.authOverride.cookies).forEach(([name, value]) => {
-      cookieMap[name] = encodeURIComponent(value);
-    });
-  }
-  
-  if (options?.cookies) {
-    Object.entries(options.cookies).forEach(([name, value]) => {
-      cookieMap[name] = encodeURIComponent(value);
-    });
-  }
-  
-  for (const [name, value] of Object.entries(cookieMap)) {
-    cookies.push(`${name}=${value}`);
-  }
+      // Apply authentication
+      applyAuthentication(headers, config.auth, options?.authOverride);
 
-  if (cookies.length > 0) {
-    headers.set('Cookie', cookies.join('; '));
-  }
+      if (options?.headers) {
+        Object.entries(options.headers).forEach(([key, value]) => {
+          headers.set(key, value);
+        });
+      }
 
-  try {
-    const requestOptions: RequestInit = {
-      ...config.requestOptions,
-      headers,
-      signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined
-    };
+      // Handle cookies
+      const cookies: string[] = [];
+      const cookieMap: Record<string, string> = {};
+      
+      if (config.auth?.type === 'cookie' && config.auth.cookies) {
+        Object.entries(config.auth.cookies).forEach(([name, value]) => {
+          cookieMap[name] = encodeURIComponent(value);
+        });
+      }
+      
+      if (options?.authOverride?.type === 'cookie' && options.authOverride.cookies) {
+        Object.entries(options.authOverride.cookies).forEach(([name, value]) => {
+          cookieMap[name] = encodeURIComponent(value);
+        });
+      }
+      
+      if (options?.cookies) {
+        Object.entries(options.cookies).forEach(([name, value]) => {
+          cookieMap[name] = encodeURIComponent(value);
+        });
+      }
+      
+      for (const [name, value] of Object.entries(cookieMap)) {
+        cookies.push(`${name}=${value}`);
+      }
 
-    const response = await fetch(url, requestOptions);
-    
-    if (!response.ok && !(options?.responseOptions?.throwHttpErrors === false)) {
-      throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
-    }
+      if (cookies.length > 0) {
+        headers.set('Cookie', cookies.join('; '));
+      }
 
-    if (options?.responseFormat === 'stream') {
+      // Create request options
+      const requestOptions: RequestInit = {
+        ...config.requestOptions,
+        method: options?.method || 'GET',
+        headers,
+        signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined
+      };
+
+      // Add body for non-GET requests if provided
+      if (options?.body && requestOptions.method !== 'GET') {
+        requestOptions.body = typeof options.body === 'string' 
+          ? options.body 
+          : JSON.stringify(options.body);
+      }
+
+      // Make the request
+      const response = await fetch(url, requestOptions);
+      
+      // Handle HTTP errors
+      if (!response.ok && !(options?.responseOptions?.throwHttpErrors === false)) {
+        // Create appropriate error types based on status codes
+        if (response.status === 401) {
+          throw new AuthenticationError(
+            `Authentication failed: ${response.statusText}`,
+            config.auth?.type,
+            response.status,
+            { url, method: requestOptions.method }
+          );
+        } else if (response.status === 403) {
+          throw new AuthenticationError(
+            `Access forbidden: ${response.statusText}`,
+            config.auth?.type,
+            response.status,
+            { url, method: requestOptions.method }
+          );
+        } else if (response.status === 404) {
+          throw new NotFoundError(
+            `Resource not found: ${response.statusText}`,
+            'endpoint',
+            endpoint,
+            response.status,
+            { url, method: requestOptions.method }
+          );
+        } else if (response.status >= 500) {
+          throw new NetworkError(
+            `Server error: ${response.statusText}`,
+            url,
+            requestOptions.method,
+            response.status
+          );
+        } else {
+          throw new NetworkError(
+            `HTTP error ${response.status}: ${response.statusText}`,
+            url,
+            requestOptions.method,
+            response.status
+          );
+        }
+      }
+
+      // Log successful request
+      logger.debug(`Request succeeded: ${response.status} ${response.statusText}`, {
+        endpoint: finalEndpoint,
+        status: response.status
+      });
+
+      // Handle stream response format
+      if (options?.responseFormat === 'stream') {
+        return {
+          stream: response.body,
+          metadata: {
+            timestamp: Date.now(),
+            source: 'rest-api',
+            status: response.status,
+            headers: Object.fromEntries(response.headers.entries())
+          }
+        };
+      }
+      
+      // Handle full response option
+      if (options?.responseOptions?.fullResponse) {
+        return {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers.entries()),
+          data: await response.json().catch(() => null),
+          ok: response.ok
+        };
+      }
+
+      // Parse the JSON response
+      let data;
+      try {
+        data = await response.json();
+      } catch (error) {
+        logger.warn(`Failed to parse JSON response from ${endpoint}`, { error });
+        // Return empty object if JSON parsing fails but don't fail the request
+        data = {};
+      }
+
+      // Handle batch response format
+      if (options?.responseFormat === 'batch') {
+        const items = Array.isArray(data) ? data : (data.items || data.data || [data]);
+        
+        return {
+          data: items,
+          metadata: {
+            timestamp: Date.now(),
+            source: 'rest-api',
+            status: response.status,
+            headers: Object.fromEntries(response.headers.entries()),
+            totalItems: data.totalItems || items.length,
+            currentPage: options.pagination?.startPage || 1,
+            hasNextPage: items.length === (options.pagination?.pageSize || options.batchSize)
+          }
+        };
+      }
+      
+      // Default response format
       return {
-        stream: response.body,
+        data,
         metadata: {
           timestamp: Date.now(),
           source: 'rest-api',
@@ -248,51 +406,35 @@ export async function fetchData(
           headers: Object.fromEntries(response.headers.entries())
         }
       };
-    }
-    
-    if (options?.responseOptions?.fullResponse) {
-      return {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries()),
-        data: await response.json().catch(() => null),
-        ok: response.ok
-      };
-    }
-
-    if (options?.responseFormat === 'batch') {
-      const data = await response.json();
-      
-      const items = Array.isArray(data) ? data : (data.items || data.data || [data]);
-      
-      return {
-        data: items,
-        metadata: {
-          timestamp: Date.now(),
-          source: 'rest-api',
-          status: response.status,
-          headers: Object.fromEntries(response.headers.entries()),
-          totalItems: data.totalItems || items.length,
-          currentPage: options.pagination?.startPage || 1,
-          hasNextPage: items.length === (options.pagination?.pageSize || options.batchSize)
-        }
-      };
-    }
-    
-    const data = await response.json();
-    
-    return {
-      data,
-      metadata: {
-        timestamp: Date.now(),
-        source: 'rest-api',
-        status: response.status,
-        headers: Object.fromEntries(response.headers.entries())
+    } catch (error) {
+      // Handle AbortError (timeout)
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new TimeoutError(
+          `Request timed out after ${config.timeout}ms`,
+          buildUrl(config, endpoint, options?.pagination, options?.query),
+          options?.method || 'GET',
+          config.timeout
+        );
       }
-    };
-  } catch (error) {
-    throw error;
-  }
+      
+      // If it's already one of our custom errors, just rethrow it
+      if (error instanceof NetworkError || 
+          error instanceof AuthenticationError || 
+          error instanceof InvalidConfigError ||
+          error instanceof NotFoundError ||
+          error instanceof TimeoutError) {
+        throw error;
+      }
+      
+      // Otherwise, convert to an appropriate error type
+      logger.error(`Request failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new NetworkError(
+        `Request failed: ${error instanceof Error ? error.message : String(error)}`,
+        buildUrl(config, endpoint, options?.pagination, options?.query),
+        options?.method || 'GET'
+      );
+    }
+  }, retryOptions);
 }
 
 /**
@@ -365,6 +507,7 @@ function applyAuthentication(
  * @param pagination - Optional pagination settings
  * @param query - Optional query parameters for filtering and sorting
  * @returns The complete URL as a string
+ * @throws InvalidConfigError if required configuration is missing
  */
 function buildUrl(
   config: RestApiConfig, 
@@ -372,16 +515,27 @@ function buildUrl(
   pagination?: PaginationOptions,
   query?: QueryOptions
 ): string {
-  // Improved logging for diagnostics
-  console.log(`Building URL for endpoint: ${endpoint}`);
-  console.log(`Config: ${JSON.stringify(config || {})}`);
+  // Replace console.log with proper logging
+  logger.debug(`Building URL for endpoint: ${endpoint}`, {
+    baseUrl: config.baseUrl
+  });
   
   if (!config) {
-    throw new Error('REST API configuration is missing or undefined');
+    throw new InvalidConfigError(
+      'REST API configuration is missing or undefined',
+      'config',
+      'object',
+      undefined
+    );
   }
   
   if (!config.baseUrl) {
-    throw new Error('REST API baseUrl is missing or undefined');
+    throw new InvalidConfigError(
+      'REST API baseUrl is missing or undefined',
+      'baseUrl',
+      'string',
+      config.baseUrl
+    );
   }
   
   const endpointKey = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;

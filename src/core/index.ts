@@ -1,15 +1,14 @@
 /**
- * Exports core functionality for data binding and linking
+ * Core functionality for DataBinder
  */
 
-// Export Linker class and related types
-export { 
-  Linker, 
-  LinkerOptions, 
-  PropertyMapping, 
-  DatasourceMethodConfig, 
-  DatasourceConfig as LinkerDatasourceConfig 
-} from './Linker';
+// Export error types
+export * from './errors';
 
-// Export DataBinder class and related types
-export * from './DataBinder';
+// Export logger
+export * from './logger';
+
+// Export linker
+export * from './Linker';
+
+// Add any other core exports here

@@ -5,8 +5,13 @@ import {
   createRestApiBasedDatasource,
   fetchData
 } from './RestApiDatasource';
-
 import { getMicrosoftGraphToken } from '../../auth/tokenProvider';
+import { 
+  DatasourceInitError, 
+  AuthenticationError, 
+  InvalidConfigError 
+} from '../../core/errors';
+import { logger } from '../../core/logger';
 
 export interface MicrosoftGraphConfig extends RestApiConfig {
   tenantId: string;
@@ -48,34 +53,71 @@ const microsoftGraphMethods = {
 export async function createMicrosoftGraphDatasourceAsync(
   config: MicrosoftGraphConfig
 ): Promise<Datasource> {
-  const token = await getMicrosoftGraphToken(config);
+  if (!config.tenantId || !config.clientId || !config.clientSecret) {
+    throw new InvalidConfigError(
+      'Microsoft Graph datasource requires tenantId, clientId, and clientSecret',
+      undefined,
+      undefined,
+      undefined,
+      { missingFields: ['tenantId', 'clientId', 'clientSecret'].filter(f => !config[f]) }
+    );
+  }
 
-  const mergedConfig: MicrosoftGraphConfig = {
-    ...config,
-    baseUrl: 'https://graph.microsoft.com/v1.0',
-    auth: {
-      type: 'bearer',
-      token
-    }
-  };
-
-  const instance = createRestApiBasedDatasource(
-    config.id || 'microsoft-graph',
-    'Microsoft Graph',
-    'Datasource for Microsoft Graph API',
-    mergedConfig,
-    {}
-  ).createInstance(mergedConfig);
-
-  Object.entries(microsoftGraphMethods).forEach(([key, method]) => {
-    instance.methods[key] = (options?: any) =>
-      method({
-        ...options,
-        config: mergedConfig
-      });
+  logger.debug('Initializing Microsoft Graph datasource', { 
+    tenantId: config.tenantId,
+    clientId: config.clientId
   });
 
-  return instance;
+  try {
+    const token = await getMicrosoftGraphToken(config);
+
+    const mergedConfig: MicrosoftGraphConfig = {
+      ...config,
+      baseUrl: 'https://graph.microsoft.com/v1.0',
+      auth: {
+        type: 'bearer',
+        token
+      }
+    };
+
+    const instance = createRestApiBasedDatasource(
+      config.id || 'microsoft-graph',
+      'Microsoft Graph',
+      'Datasource for Microsoft Graph API',
+      mergedConfig,
+      {}
+    ).createInstance(mergedConfig);
+
+    Object.entries(microsoftGraphMethods).forEach(([key, method]) => {
+      instance.methods[key] = (options?: any) =>
+        method({
+          ...options,
+          config: mergedConfig
+        });
+    });
+
+    logger.info('Microsoft Graph datasource initialized successfully', {
+      id: instance.id
+    });
+
+    return instance;
+  } catch (error) {
+    logger.error('Failed to initialize Microsoft Graph datasource', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+
+    // Rethrow authentication errors
+    if (error instanceof AuthenticationError) {
+      throw error;
+    }
+
+    // Wrap other errors
+    throw new DatasourceInitError(
+      `Failed to initialize Microsoft Graph datasource: ${error instanceof Error ? error.message : String(error)}`,
+      config.id,
+      'microsoft-graph'
+    );
+  }
 }
 
 /**
@@ -88,6 +130,7 @@ export function createMicrosoftGraphDatasource(
   // Create a placeholder datasource that will be fully initialized on first method call
   let initializedInstance: Datasource | null = null;
   let initializationPromise: Promise<Datasource> | null = null;
+  let initializationError: Error | null = null;
 
   // Create a wrapper instance that will initialize the real instance on first use
   const wrapperInstance: Datasource = {
@@ -99,23 +142,79 @@ export function createMicrosoftGraphDatasource(
 
   // Create dynamic method wrappers that ensure the datasource is initialized
   const ensureInitialized = async (): Promise<Datasource> => {
+    // If already initialized, return the instance
     if (initializedInstance) {
       return initializedInstance;
     }
 
-    if (!initializationPromise) {
-      initializationPromise = createMicrosoftGraphDatasourceAsync(config);
+    // If already failed with an error, don't retry
+    if (initializationError) {
+      throw initializationError;
     }
 
-    initializedInstance = await initializationPromise;
-    return initializedInstance;
+    // If initialization is in progress, wait for it
+    if (initializationPromise) {
+      try {
+        initializedInstance = await initializationPromise;
+        return initializedInstance;
+      } catch (error) {
+        // Store the error for future calls
+        initializationError = error instanceof Error 
+          ? error 
+          : new DatasourceInitError(String(error), config.id, 'microsoft-graph');
+        throw initializationError;
+      }
+    }
+
+    // Start initialization
+    try {
+      logger.debug('Lazy initializing Microsoft Graph datasource', { id: config.id });
+      initializationPromise = createMicrosoftGraphDatasourceAsync(config);
+      initializedInstance = await initializationPromise;
+      return initializedInstance;
+    } catch (error) {
+      // Store the error for future calls
+      initializationError = error instanceof Error 
+        ? error 
+        : new DatasourceInitError(String(error), config.id, 'microsoft-graph');
+      logger.error('Failed to lazy initialize Microsoft Graph datasource', {
+        error: initializationError.message
+      });
+      throw initializationError;
+    }
   };
 
   // Generate placeholder methods that will delegate to the real instance once initialized
   Object.keys(microsoftGraphMethods).forEach(methodName => {
     wrapperInstance.methods[methodName] = async (options?: any) => {
-      const instance = await ensureInitialized();
-      return instance.methods[methodName](options);
+      try {
+        const instance = await ensureInitialized();
+        return instance.methods[methodName](options);
+      } catch (error) {
+        // Add context to the error
+        if (error instanceof Error) {
+          logger.error(`Error in Microsoft Graph method ${methodName}`, { 
+            error: error.message,
+            methodName,
+            options: JSON.stringify(options, null, 2).substring(0, 200) // Limit length for logging
+          });
+          
+          // If it's already a custom error, just rethrow
+          if (error instanceof DatasourceInitError || 
+              error instanceof AuthenticationError || 
+              error instanceof InvalidConfigError) {
+            throw error;
+          }
+          
+          // Otherwise wrap it
+          throw new DatasourceInitError(
+            `Error in Microsoft Graph method ${methodName}: ${error.message}`,
+            config.id,
+            'microsoft-graph'
+          );
+        }
+        throw error;
+      }
     };
   });
 

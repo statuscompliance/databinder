@@ -63,24 +63,51 @@ export class DatasourceCatalog {
    * 
    * @param config - The configuration to validate
    * @param schema - The schema to validate against
-   * @throws Error if validation fails
+   * @throws InvalidConfigError if validation fails
    */
   private validateConfig(config: DatasourceConfig, schema: Record<string, any>): void {
+    // Import InvalidConfigError
+    const { InvalidConfigError } = require('../core/errors');
+    
     // Validar propiedades requeridas
     if (schema.required && Array.isArray(schema.required)) {
+      const missingProps = [];
+      
       for (const requiredProp of schema.required) {
         // Comprobar si la propiedad existe y no es undefined
         if (!(requiredProp in config) || config[requiredProp] === undefined) {
-          throw new Error(`Missing required property '${requiredProp}' in datasource configuration`);
+          missingProps.push(requiredProp);
         }
+      }
+      
+      if (missingProps.length > 0) {
+        throw new InvalidConfigError(
+          `Missing required ${missingProps.length > 1 ? 'properties' : 'property'} in datasource configuration: ${missingProps.join(', ')}`,
+          missingProps.join(', '),
+          undefined,
+          undefined,
+          { schema: schema.title || 'datasource schema' }
+        );
       }
     }
 
-    // Validar tipos y restricciones adicionales si hay propiedades definidas
     if (schema.properties) {
-      for (const [propName, propSchema] of Object.entries(schema.properties)) {
+      for (const [propName, propSchema] of Object.entries(schema.properties) as [string, any][]) {
         if (propName in config && config[propName] !== undefined) {
-          this.validateProperty(propName, config[propName], propSchema);
+          try {
+            this.validateProperty(propName, config[propName], propSchema);
+          } catch (error) {
+            if (error instanceof Error) {
+              throw new InvalidConfigError(
+                error.message,
+                propName,
+                propSchema.type,
+                config[propName],
+                { schema: schema.title || 'datasource schema' }
+              );
+            }
+            throw error;
+          }
         }
       }
     }
@@ -100,7 +127,9 @@ export class DatasourceCatalog {
       const type = typeof value;
       if (propSchema.type === 'array' && !Array.isArray(value)) {
         throw new Error(`Property '${propName}' should be an array`);
-      } else if (propSchema.type !== 'array' && propSchema.type !== type) {
+      } else if (propSchema.type === 'object' && (type !== 'object' || Array.isArray(value))) {
+        throw new Error(`Property '${propName}' should be an object`);
+      } else if (propSchema.type !== 'array' && propSchema.type !== 'object' && propSchema.type !== type) {
         throw new Error(`Property '${propName}' should be of type '${propSchema.type}' but got '${type}'`);
       }
     }

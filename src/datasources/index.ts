@@ -25,4 +25,15 @@ export {
   createGithubApiDatasource
 } from './implementations/GithubApiDatasource';
 
+// Export Microsoft Graph datasource
+export {
+  MicrosoftGraphDatasource,
+  MicrosoftGraphConfig,
+  MicrosoftGraphOptions,
+  createMicrosoftGraphDatasource
+} from './implementations/MicrosoftGraphDatasource';
+
+// Export utility modules
+export * from '../utils/retryUtils';
+
 // Add more datasource exports here as needed
