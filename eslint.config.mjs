@@ -25,4 +25,7 @@ export default [
     },
   },
   pluginJs.configs.recommended,
+  {
+    ignores: ['dist/'],
+  },
 ];

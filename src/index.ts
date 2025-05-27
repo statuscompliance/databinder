@@ -5,9 +5,6 @@
  * with built-in support for REST APIs, GitHub APIs, and more.
  */
 
-// Export base types
-export * from './types';
-
 // Export core functionality
 export * from './core';
 
