@@ -15,6 +15,7 @@ import {
 } from '../../core/errors';
 import { logger } from '../../core/logger';
 import { withRetry } from '../../utils/retryUtils';
+import { withSpan, SpanKind } from '../../utils/telemetry';
 
 export interface RestApiConfig extends DatasourceConfig {
   baseUrl: string;
@@ -75,6 +76,11 @@ export interface RestApiMethodOptions extends DatasourceMethodOptions {
    * Request body for POST, PUT, and PATCH requests
    */
   body?: any;
+  
+  /**
+   * Optional datasource identifier
+   */
+  datasourceId?: string;
 }
 
 // Type definition for REST API based datasources
@@ -225,129 +231,195 @@ export async function fetchData(
 
   // Use withRetry to handle transient failures
   return withRetry(async () => {
-    try {
-      logger.debug(`Making request to endpoint: ${endpoint}`, {
-        baseUrl: config.baseUrl,
-        method: options?.method || 'GET'
-      });
-
-      const finalEndpoint = options?.endpoint || endpoint;
-      const url = buildUrl(config, finalEndpoint, options?.pagination, options?.query);
-      
-      const headers = new Headers({
-        'Content-Type': 'application/json',
-        ...config.headers
-      });
-
-      // Apply authentication
-      applyAuthentication(headers, config.auth, options?.authOverride);
-
-      if (options?.headers) {
-        Object.entries(options.headers).forEach(([key, value]) => {
-          headers.set(key, value);
+    // Implementar trazado distribuido
+    return withSpan(`REST API ${options?.method || 'GET'} ${endpoint}`, async (span) => {
+      try {
+        logger.debug(`Making request to endpoint: ${endpoint}`, {
+          baseUrl: config.baseUrl,
+          method: options?.method || 'GET'
         });
-      }
 
-      // Handle cookies
-      const cookies: string[] = [];
-      const cookieMap: Record<string, string> = {};
-      
-      if (config.auth?.type === 'cookie' && config.auth.cookies) {
-        Object.entries(config.auth.cookies).forEach(([name, value]) => {
-          cookieMap[name] = encodeURIComponent(value);
-        });
-      }
-      
-      if (options?.authOverride?.type === 'cookie' && options.authOverride.cookies) {
-        Object.entries(options.authOverride.cookies).forEach(([name, value]) => {
-          cookieMap[name] = encodeURIComponent(value);
-        });
-      }
-      
-      if (options?.cookies) {
-        Object.entries(options.cookies).forEach(([name, value]) => {
-          cookieMap[name] = encodeURIComponent(value);
-        });
-      }
-      
-      for (const [name, value] of Object.entries(cookieMap)) {
-        cookies.push(`${name}=${value}`);
-      }
-
-      if (cookies.length > 0) {
-        headers.set('Cookie', cookies.join('; '));
-      }
-
-      // Create request options
-      const requestOptions: RequestInit = {
-        ...config.requestOptions,
-        method: options?.method || 'GET',
-        headers,
-        signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined
-      };
-
-      // Add body for non-GET requests if provided
-      if (options?.body && requestOptions.method !== 'GET') {
-        requestOptions.body = typeof options.body === 'string' 
-          ? options.body 
-          : JSON.stringify(options.body);
-      }
-
-      // Make the request
-      const response = await fetch(url, requestOptions);
-      
-      // Handle HTTP errors
-      if (!response.ok && !(options?.responseOptions?.throwHttpErrors === false)) {
-        // Create appropriate error types based on status codes
-        if (response.status === 401) {
-          throw new AuthenticationError(
-            `Authentication failed: ${response.statusText}`,
-            config.auth?.type,
-            response.status,
-            { url, method: requestOptions.method }
-          );
-        } else if (response.status === 403) {
-          throw new AuthenticationError(
-            `Access forbidden: ${response.statusText}`,
-            config.auth?.type,
-            response.status,
-            { url, method: requestOptions.method }
-          );
-        } else if (response.status === 404) {
-          throw new NotFoundError(
-            `Resource not found: ${response.statusText}`,
-            'endpoint',
-            endpoint,
-            response.status,
-            { url, method: requestOptions.method }
-          );
-        } else if (response.status >= 500) {
-          throw new NetworkError(
-            `Server error: ${response.statusText}`,
-            url,
-            requestOptions.method,
-            response.status
-          );
-        } else {
-          throw new NetworkError(
-            `HTTP error ${response.status}: ${response.statusText}`,
-            url,
-            requestOptions.method,
-            response.status
-          );
+        // Añadir atributos al span
+        span.setAttribute('http.method', options?.method || 'GET');
+        span.setAttribute('http.url', config.baseUrl + endpoint);
+        span.setAttribute('databinder.datasource', 'rest-api');
+        
+        if (options?.datasourceId) {
+          span.setAttribute('databinder.datasource.id', options.datasourceId);
         }
-      }
 
-      // Log successful request
-      logger.debug(`Request succeeded: ${response.status} ${response.statusText}`, {
-        endpoint: finalEndpoint,
-        status: response.status
-      });
+        const finalEndpoint = options?.endpoint || endpoint;
+        const url = buildUrl(config, finalEndpoint, options?.pagination, options?.query);
+        
+        const headers = new Headers({
+          'Content-Type': 'application/json',
+          ...config.headers
+        });
 
-      // Handle stream response format
-      if (options?.responseFormat === 'stream') {
+        // Apply authentication
+        applyAuthentication(headers, config.auth, options?.authOverride);
+
+        if (options?.headers) {
+          Object.entries(options.headers).forEach(([key, value]) => {
+            headers.set(key, value);
+          });
+        }
+
+        // Handle cookies
+        const cookies: string[] = [];
+        const cookieMap: Record<string, string> = {};
+        
+        if (config.auth?.type === 'cookie' && config.auth.cookies) {
+          Object.entries(config.auth.cookies).forEach(([name, value]) => {
+            cookieMap[name] = encodeURIComponent(value);
+          });
+        }
+        
+        if (options?.authOverride?.type === 'cookie' && options.authOverride.cookies) {
+          Object.entries(options.authOverride.cookies).forEach(([name, value]) => {
+            cookieMap[name] = encodeURIComponent(value);
+          });
+        }
+        
+        if (options?.cookies) {
+          Object.entries(options.cookies).forEach(([name, value]) => {
+            cookieMap[name] = encodeURIComponent(value);
+          });
+        }
+        
+        for (const [name, value] of Object.entries(cookieMap)) {
+          cookies.push(`${name}=${value}`);
+        }
+
+        if (cookies.length > 0) {
+          headers.set('Cookie', cookies.join('; '));
+        }
+
+        // Create request options
+        const requestOptions: RequestInit = {
+          ...config.requestOptions,
+          method: options?.method || 'GET',
+          headers,
+          signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined
+        };
+
+        // Add body for non-GET requests if provided
+        if (options?.body && requestOptions.method !== 'GET') {
+          requestOptions.body = typeof options.body === 'string' 
+            ? options.body 
+            : JSON.stringify(options.body);
+        }
+
+        // Make the request
+        const response = await fetch(url, requestOptions);
+        
+        // Añadir atributos de respuesta al span
+        span.setAttribute('http.status_code', response.status);
+        span.setAttribute('http.status_text', response.statusText);
+        
+        // Handle HTTP errors
+        if (!response.ok && !(options?.responseOptions?.throwHttpErrors === false)) {
+          // Create appropriate error types based on status codes
+          if (response.status === 401) {
+            throw new AuthenticationError(
+              `Authentication failed: ${response.statusText}`,
+              config.auth?.type,
+              response.status,
+              { url, method: requestOptions.method }
+            );
+          } else if (response.status === 403) {
+            throw new AuthenticationError(
+              `Access forbidden: ${response.statusText}`,
+              config.auth?.type,
+              response.status,
+              { url, method: requestOptions.method }
+            );
+          } else if (response.status === 404) {
+            throw new NotFoundError(
+              `Resource not found: ${response.statusText}`,
+              'endpoint',
+              endpoint,
+              response.status,
+              { url, method: requestOptions.method }
+            );
+          } else if (response.status >= 500) {
+            throw new NetworkError(
+              `Server error: ${response.statusText}`,
+              url,
+              requestOptions.method,
+              response.status
+            );
+          } else {
+            throw new NetworkError(
+              `HTTP error ${response.status}: ${response.statusText}`,
+              url,
+              requestOptions.method,
+              response.status
+            );
+          }
+        }
+
+        // Log successful request
+        logger.debug(`Request succeeded: ${response.status} ${response.statusText}`, {
+          endpoint: finalEndpoint,
+          status: response.status
+        });
+
+        // Handle stream response format
+        if (options?.responseFormat === 'stream') {
+          return {
+            stream: response.body,
+            metadata: {
+              timestamp: Date.now(),
+              source: 'rest-api',
+              status: response.status,
+              headers: Object.fromEntries(response.headers.entries())
+            }
+          };
+        }
+        
+        // Handle full response option
+        if (options?.responseOptions?.fullResponse) {
+          return {
+            status: response.status,
+            statusText: response.statusText,
+            headers: Object.fromEntries(response.headers.entries()),
+            data: await response.json().catch(() => null),
+            ok: response.ok
+          };
+        }
+
+        // Parse the JSON response
+        let data;
+        try {
+          data = await response.json();
+        } catch (error) {
+          logger.warn(`Failed to parse JSON response from ${endpoint}`, { error });
+          // Return empty object if JSON parsing fails but don't fail the request
+          data = {};
+        }
+
+        // Handle batch response format
+        if (options?.responseFormat === 'batch') {
+          const items = Array.isArray(data) ? data : (data.items || data.data || [data]);
+          
+          return {
+            data: items,
+            metadata: {
+              timestamp: Date.now(),
+              source: 'rest-api',
+              status: response.status,
+              headers: Object.fromEntries(response.headers.entries()),
+              totalItems: data.totalItems || items.length,
+              currentPage: options.pagination?.startPage || 1,
+              hasNextPage: items.length === (options.pagination?.pageSize || options.batchSize)
+            }
+          };
+        }
+        
+        // Default response format
         return {
-          stream: response.body,
+          data,
           metadata: {
             timestamp: Date.now(),
             source: 'rest-api',
@@ -355,85 +427,41 @@ export async function fetchData(
             headers: Object.fromEntries(response.headers.entries())
           }
         };
-      }
-      
-      // Handle full response option
-      if (options?.responseOptions?.fullResponse) {
-        return {
-          status: response.status,
-          statusText: response.statusText,
-          headers: Object.fromEntries(response.headers.entries()),
-          data: await response.json().catch(() => null),
-          ok: response.ok
-        };
-      }
-
-      // Parse the JSON response
-      let data;
-      try {
-        data = await response.json();
       } catch (error) {
-        logger.warn(`Failed to parse JSON response from ${endpoint}`, { error });
-        // Return empty object if JSON parsing fails but don't fail the request
-        data = {};
-      }
-
-      // Handle batch response format
-      if (options?.responseFormat === 'batch') {
-        const items = Array.isArray(data) ? data : (data.items || data.data || [data]);
-        
-        return {
-          data: items,
-          metadata: {
-            timestamp: Date.now(),
-            source: 'rest-api',
-            status: response.status,
-            headers: Object.fromEntries(response.headers.entries()),
-            totalItems: data.totalItems || items.length,
-            currentPage: options.pagination?.startPage || 1,
-            hasNextPage: items.length === (options.pagination?.pageSize || options.batchSize)
-          }
-        };
-      }
-      
-      // Default response format
-      return {
-        data,
-        metadata: {
-          timestamp: Date.now(),
-          source: 'rest-api',
-          status: response.status,
-          headers: Object.fromEntries(response.headers.entries())
+        // Handle AbortError (timeout)
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw new TimeoutError(
+            `Request timed out after ${config.timeout}ms`,
+            buildUrl(config, endpoint, options?.pagination, options?.query),
+            options?.method || 'GET',
+            config.timeout
+          );
         }
-      };
-    } catch (error) {
-      // Handle AbortError (timeout)
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new TimeoutError(
-          `Request timed out after ${config.timeout}ms`,
+        
+        // If it's already one of our custom errors, just rethrow it
+        if (error instanceof NetworkError || 
+            error instanceof AuthenticationError || 
+            error instanceof InvalidConfigError ||
+            error instanceof NotFoundError ||
+            error instanceof TimeoutError) {
+          throw error;
+        }
+        
+        // Otherwise, convert to an appropriate error type
+        logger.error(`Request failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw new NetworkError(
+          `Request failed: ${error instanceof Error ? error.message : String(error)}`,
           buildUrl(config, endpoint, options?.pagination, options?.query),
-          options?.method || 'GET',
-          config.timeout
+          options?.method || 'GET'
         );
       }
-      
-      // If it's already one of our custom errors, just rethrow it
-      if (error instanceof NetworkError || 
-          error instanceof AuthenticationError || 
-          error instanceof InvalidConfigError ||
-          error instanceof NotFoundError ||
-          error instanceof TimeoutError) {
-        throw error;
+    }, {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        'databinder.datasource.type': 'rest-api',
+        'databinder.endpoint': endpoint
       }
-      
-      // Otherwise, convert to an appropriate error type
-      logger.error(`Request failed: ${error instanceof Error ? error.message : String(error)}`);
-      throw new NetworkError(
-        `Request failed: ${error instanceof Error ? error.message : String(error)}`,
-        buildUrl(config, endpoint, options?.pagination, options?.query),
-        options?.method || 'GET'
-      );
-    }
+    });
   }, retryOptions);
 }
 

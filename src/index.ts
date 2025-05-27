@@ -18,3 +18,4 @@ export * from './catalog';
 export * from './utils/validation';
 export * from './utils/sanitize';
 export * from './utils/logger';
+export * from './utils/telemetry';
