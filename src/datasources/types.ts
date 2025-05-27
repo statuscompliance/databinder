@@ -48,20 +48,18 @@ export interface DatasourceDefinition {
 export interface BatchResponse<T> {
   data: T[];
   metadata: {
-    totalItems?: number;
-    totalPages?: number;
     currentPage?: number;
+    totalPages?: number;
     hasNextPage: boolean;
+    totalItems?: number;
+    error?: string; // Añadimos la propiedad error para los casos de error
   };
 }
 
-export interface DatasourceResponse<T = any> {
-  data: T;
-  metadata?: {
-    timestamp: number;
-    source: string;
-    [key: string]: any;
-  };
+export interface SourceResponse<T = any> {
+  timestamp: number;
+  source: string;
+  [key: string]: any;
 }
 
 export type ResponseFormat = 'full' | 'iterator' | 'stream';
