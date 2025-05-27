@@ -4,7 +4,6 @@
   "description": "A TypeScript library to simplify integration with data sources",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "type": "module",
   "files": [
     "dist"
   ],
@@ -21,7 +20,7 @@
     "api",
     "binding"
   ],
-  "author": "",
+  "author": "alvarobernal2412",
   "license": "Apache-2.0",
   "devDependencies": {
     "@commitlint/cli": "19.8.1",
@@ -38,6 +37,9 @@
   "dependencies": {
     "@azure/identity": "4.10.0",
     "@microsoft/microsoft-graph-client": "3.0.7",
-    "dotenv": "16.5.0"
+    "dotenv": "16.5.0",
+    "mongoose": "8.15.1",
+    "uuid": "11.1.0",
+    "winston": "3.17.0"
   }
 }
