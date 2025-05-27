@@ -1,0 +1,109 @@
+{
+  "timezone": "Europe/Madrid",
+  "schedule": [
+    "after 16:00 and before 22:00 on wednesday"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "groupName": "npm (development)"
+    },
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "matchDepTypes": [
+        "dependencies"
+      ],
+      "groupName": "npm (runtime)"
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "separateMajorMinor": false,
+      "groupName": "ci"
+    },
+    {
+      "matchUpdateTypes": [
+        "lockFileMaintenance"
+      ],
+      "groupName": "lockfiles",
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
+    },
+    {
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true,
+      "automergeType": "branch"
+    }
+  ],
+  "dependencyDashboard": true,
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "groupName": "vulnerable",
+    "labels": [
+      "security",
+      "dependencies"
+    ]
+  },
+  "ignoreDeps": [
+    "npm",
+    "node"
+  ],
+  "enabledManagers": [
+    "npm",
+    "github-actions"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "rebaseWhen": "behind-base-branch",
+  "rangeStrategy": "pin",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "groupName": "lockfiles",
+    "schedule": [
+      "every month"
+    ]
+  },
+  "prCreation": "not-pending",
+  "branchConcurrentLimit": 5,
+  "assignees": [
+    "alvarobernal2412"
+  ],
+  "reviewers": [
+    "alvarobernal2412"
+  ],
+  "extends": [
+    "mergeConfidence:age-confidence-badges"
+  ],
+  "baseBranches": [
+    "develop"
+  ],
+  "recreateClosed": true,
+  "rebaseLabel": "rebase"
+}

@@ -4,6 +4,7 @@
   "description": "A TypeScript library to simplify integration with data sources",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
   "files": [
     "dist"
   ],
