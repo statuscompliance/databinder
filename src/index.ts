@@ -9,7 +9,12 @@
 export * from './core';
 
 // Export datasource types and implementations
-export * from './datasources';
+export * as Datasources from './datasources';
 
 // Export catalog functionality
 export * from './catalog';
+
+// Export validation and sanitization utilities
+export * from './utils/validation';
+export * from './utils/sanitize';
+export * from './utils/logger';

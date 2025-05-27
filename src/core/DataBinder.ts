@@ -98,31 +98,40 @@ export class DataBinder {
    * @throws Error if the datasource is not found or fetching fails
    */
   async fetchFromDatasource(datasourceId: string, options: FetchOptions): Promise<any> {
-    const datasource = this.linker.getDatasource(datasourceId);
+    const { validateInput, baseFetchOptionsSchema } = require('../utils/validation');
+    const { sanitizeString } = require('../utils/sanitize');
+    
+    // Sanitize datasource ID
+    const safeDataSourceId = sanitizeString(datasourceId);
+    
+    // Validate options
+    const validatedOptions = validateInput(options, baseFetchOptionsSchema.passthrough());
+    
+    const datasource = this.linker.getDatasource(safeDataSourceId);
     if (!datasource) {
-      const error = new Error(`Datasource with ID '${datasourceId}' not found`);
-      logError(error, { datasourceId });
+      const error = new Error(`Datasource with ID '${safeDataSourceId}' not found`);
+      logError(error, { datasourceId: safeDataSourceId });
       throw error;
     }
 
-    const methodName = options.methodName || 'default';
+    const methodName = validatedOptions.methodName || 'default';
     if (typeof datasource.methods[methodName] !== 'function') {
-      const error = new Error(`Method '${methodName}' not found in datasource '${datasourceId}'`);
-      logError(error, { datasourceId, methodName });
+      const error = new Error(`Method '${methodName}' not found in datasource '${safeDataSourceId}'`);
+      logError(error, { datasourceId: safeDataSourceId, methodName });
       throw error;
     }
 
     try {
-      logger.debug(`Executing method '${methodName}' on datasource '${datasourceId}'`, { options });
+      logger.debug(`Executing method '${methodName}' on datasource '${safeDataSourceId}'`, { options: validatedOptions });
       // Ensure we pass the datasource configuration
       const fetchOptions = {
-        ...options,
+        ...validatedOptions,
         config: datasource.config // Add the configuration here
       };
       return await datasource.methods[methodName](fetchOptions);
     } catch (error) {
-      const enhancedError = new Error(`Error fetching from datasource '${datasourceId}': ${error instanceof Error ? error.message : String(error)}`);
-      logError(enhancedError, { datasourceId, methodName, originalError: error });
+      const enhancedError = new Error(`Error fetching from datasource '${safeDataSourceId}': ${error instanceof Error ? error.message : String(error)}`);
+      logError(enhancedError, { datasourceId: safeDataSourceId, methodName, originalError: error });
       throw enhancedError;
     }
   }

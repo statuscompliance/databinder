@@ -515,7 +515,9 @@ function buildUrl(
   pagination?: PaginationOptions,
   query?: QueryOptions
 ): string {
-  // Replace console.log with proper logging
+  // Import sanitize utilities
+  const { sanitizeString, sanitizeQueryParam, sanitizeUrl } = require('../../utils/sanitize');
+  
   logger.debug(`Building URL for endpoint: ${endpoint}`, {
     baseUrl: config.baseUrl
   });
@@ -538,12 +540,25 @@ function buildUrl(
     );
   }
   
-  const endpointKey = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+  // Sanitize the endpoint
+  const sanitizedEndpoint = sanitizeString(endpoint);
+  const endpointKey = sanitizedEndpoint.startsWith('/') ? sanitizedEndpoint.substring(1) : sanitizedEndpoint;
   const customEndpoint = config.endpoints && config.endpoints[endpointKey] 
-    ? config.endpoints[endpointKey] 
-    : endpoint;
+    ? sanitizeString(config.endpoints[endpointKey]) 
+    : sanitizedEndpoint;
   
-  let url = new URL(customEndpoint, config.baseUrl);
+  // Ensure baseUrl is a valid URL
+  const safeBaseUrl = sanitizeUrl(config.baseUrl);
+  if (!safeBaseUrl) {
+    throw new InvalidConfigError(
+      'REST API baseUrl is invalid',
+      'baseUrl',
+      'url',
+      config.baseUrl
+    );
+  }
+  
+  let url = new URL(customEndpoint, safeBaseUrl);
   
   if (pagination?.enabled) {
     url.searchParams.append('page', String(pagination.startPage || 1));
@@ -554,16 +569,23 @@ function buildUrl(
   
   if (query?.filters) {
     for (const [key, value] of Object.entries(query.filters)) {
+      const safeKey = sanitizeString(key);
+      
       if (typeof value === 'object') {
-        url.searchParams.append(key, JSON.stringify(value));
+        url.searchParams.append(safeKey, sanitizeQueryParam(JSON.stringify(value)));
       } else {
-        url.searchParams.append(key, String(value));
+        url.searchParams.append(safeKey, sanitizeQueryParam(String(value)));
       }
     }
   }
   
   if (query?.sort && query.sort.length > 0) {
-    const sortParams = query.sort.map(s => `${s.field}:${s.direction}`).join(',');
+    const sortParams = query.sort.map(s => {
+      const safeField = sanitizeString(s.field);
+      const safeDirection = s.direction === 'desc' ? 'desc' : 'asc';
+      return `${safeField}:${safeDirection}`;
+    }).join(',');
+    
     url.searchParams.append('sort', sortParams);
   }
   
