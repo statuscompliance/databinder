@@ -1,6 +1,9 @@
 import { Datasource, DatasourceConfig, DatasourceDefinition } from '../datasources/types';
 import fs from 'fs/promises';
 import path from 'path';
+import { validateInput } from '../utils/validation';
+import { sanitizeFilename } from '../utils/sanitize';
+import { z } from 'zod';
 
 /**
  * Manages datasource definitions and instances.
@@ -40,7 +43,9 @@ export class DatasourceCatalog {
 
     // Validar el config contra el schema si existe
     if (definition.configSchema) {
-      this.validateConfig(config, definition.configSchema);
+      // Convertir schema JSON a schema Zod
+      const zodSchema = this.convertJsonSchemaToZod(definition.configSchema);
+      validateInput(config, zodSchema);
     }
 
     const finalInstanceId = instanceId || `${definitionId}_${Date.now()}`;
@@ -59,105 +64,59 @@ export class DatasourceCatalog {
   }
 
   /**
-   * Validates datasource configuration against a schema.
+   * Convierte un esquema JSON a un esquema Zod
    * 
-   * @param config - The configuration to validate
-   * @param schema - The schema to validate against
-   * @throws InvalidConfigError if validation fails
+   * @param jsonSchema - Esquema JSON a convertir
+   * @returns Esquema Zod equivalente
    */
-  private validateConfig(config: DatasourceConfig, schema: Record<string, any>): void {
-    // Import InvalidConfigError
-    const { InvalidConfigError } = require('../core/errors');
+  private convertJsonSchemaToZod(jsonSchema: Record<string, any>): z.ZodSchema {
+    // Implementación básica de conversión de esquema JSON a Zod
+    let schema: z.ZodTypeAny = z.any();
     
-    // Validar propiedades requeridas
-    if (schema.required && Array.isArray(schema.required)) {
-      const missingProps = [];
+    if (jsonSchema.type === 'object') {
+      const shape: Record<string, z.ZodTypeAny> = {};
       
-      for (const requiredProp of schema.required) {
-        // Comprobar si la propiedad existe y no es undefined
-        if (!(requiredProp in config) || config[requiredProp] === undefined) {
-          missingProps.push(requiredProp);
-        }
-      }
-      
-      if (missingProps.length > 0) {
-        throw new InvalidConfigError(
-          `Missing required ${missingProps.length > 1 ? 'properties' : 'property'} in datasource configuration: ${missingProps.join(', ')}`,
-          missingProps.join(', '),
-          undefined,
-          undefined,
-          { schema: schema.title || 'datasource schema' }
-        );
-      }
-    }
-
-    if (schema.properties) {
-      for (const [propName, propSchema] of Object.entries(schema.properties) as [string, any][]) {
-        if (propName in config && config[propName] !== undefined) {
-          try {
-            this.validateProperty(propName, config[propName], propSchema);
-          } catch (error) {
-            if (error instanceof Error) {
-              throw new InvalidConfigError(
-                error.message,
-                propName,
-                propSchema.type,
-                config[propName],
-                { schema: schema.title || 'datasource schema' }
-              );
+      if (jsonSchema.properties) {
+        for (const [propName, propSchema] of Object.entries(jsonSchema.properties)) {
+          let propType: z.ZodTypeAny = z.any();
+          
+          // Convertir tipo de propiedad
+          if ((propSchema as any).type === 'string') {
+            propType = z.string();
+            if ((propSchema as any).enum) {
+              propType = z.enum((propSchema as any).enum as [string, ...string[]]);
             }
-            throw error;
+          } else if ((propSchema as any).type === 'number') {
+            propType = z.number();
+          } else if ((propSchema as any).type === 'boolean') {
+            propType = z.boolean();
+          } else if ((propSchema as any).type === 'array') {
+            propType = z.array(z.any());
+          } else if ((propSchema as any).type === 'object') {
+            propType = this.convertJsonSchemaToZod(propSchema as Record<string, any>);
           }
+          
+          // Hacer la propiedad opcional si no es requerida
+          if (!jsonSchema.required || !jsonSchema.required.includes(propName)) {
+            propType = propType.optional();
+          }
+          
+          shape[propName] = propType;
         }
       }
+      
+      schema = z.object(shape);
+    } else if (jsonSchema.type === 'array') {
+      schema = z.array(z.any());
+    } else if (jsonSchema.type === 'string') {
+      schema = z.string();
+    } else if (jsonSchema.type === 'number') {
+      schema = z.number();
+    } else if (jsonSchema.type === 'boolean') {
+      schema = z.boolean();
     }
-  }
-
-  /**
-   * Validates a single property against its schema definition
-   * 
-   * @param propName - The name of the property
-   * @param value - The value to validate
-   * @param propSchema - The schema for this property
-   * @throws Error if validation fails
-   */
-  private validateProperty(propName: string, value: any, propSchema: any): void {
-    // Validar tipo
-    if (propSchema.type) {
-      const type = typeof value;
-      if (propSchema.type === 'array' && !Array.isArray(value)) {
-        throw new Error(`Property '${propName}' should be an array`);
-      } else if (propSchema.type === 'object' && (type !== 'object' || Array.isArray(value))) {
-        throw new Error(`Property '${propName}' should be an object`);
-      } else if (propSchema.type !== 'array' && propSchema.type !== 'object' && propSchema.type !== type) {
-        throw new Error(`Property '${propName}' should be of type '${propSchema.type}' but got '${type}'`);
-      }
-    }
-
-    // Validar restricciones de longitud para strings
-    if (typeof value === 'string') {
-      if (propSchema.minLength !== undefined && value.length < propSchema.minLength) {
-        throw new Error(`Property '${propName}' should have minimum length of ${propSchema.minLength}`);
-      }
-      if (propSchema.maxLength !== undefined && value.length > propSchema.maxLength) {
-        throw new Error(`Property '${propName}' should have maximum length of ${propSchema.maxLength}`);
-      }
-    }
-
-    // Validar restricciones para números
-    if (typeof value === 'number') {
-      if (propSchema.minimum !== undefined && value < propSchema.minimum) {
-        throw new Error(`Property '${propName}' should be at least ${propSchema.minimum}`);
-      }
-      if (propSchema.maximum !== undefined && value > propSchema.maximum) {
-        throw new Error(`Property '${propName}' should be at most ${propSchema.maximum}`);
-      }
-    }
-
-    // Validar enum
-    if (propSchema.enum && !propSchema.enum.includes(value)) {
-      throw new Error(`Property '${propName}' should be one of: ${propSchema.enum.join(', ')}`);
-    }
+    
+    return schema;
   }
 
   /**
@@ -237,11 +196,16 @@ export class DatasourceCatalog {
     const serialized = this.serializeInstances();
     const jsonContent = JSON.stringify(serialized, null, 2);
     
+    // Sanitize file path
+    const sanitizedFilePath = path.normalize(filePath);
+    const sanitizedBasename = sanitizeFilename(path.basename(sanitizedFilePath));
+    const directory = path.dirname(sanitizedFilePath);
+    const fullPath = path.join(directory, sanitizedBasename);
+    
     // Ensure directory exists
-    const directory = path.dirname(filePath);
     await fs.mkdir(directory, { recursive: true });
     
-    await fs.writeFile(filePath, jsonContent, 'utf8');
+    await fs.writeFile(fullPath, jsonContent, 'utf8');
   }
 
   /**
@@ -252,14 +216,25 @@ export class DatasourceCatalog {
    */
   async loadInstancesFromFile(filePath: string): Promise<void> {
     try {
-      const fileContent = await fs.readFile(filePath, 'utf8');
-      const instances = JSON.parse(fileContent) as Array<{ 
-        id: string, 
-        definitionId: string, 
-        config: DatasourceConfig 
-      }>;
+      // Sanitize file path
+      const sanitizedFilePath = path.normalize(filePath);
+      const fileContent = await fs.readFile(sanitizedFilePath, 'utf8');
       
-      this.restoreInstances(instances);
+      // Validate JSON structure before parsing
+      try {
+        const instances = validateInput(
+          JSON.parse(fileContent),
+          z.array(z.object({
+            id: z.string(),
+            definitionId: z.string(),
+            config: z.record(z.any())
+          }))
+        );
+        
+        this.restoreInstances(instances);
+      } catch (validationError) {
+        throw new Error(`Invalid instances file format: ${validationError}`);
+      }
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         // File doesn't exist, which is fine for first run
