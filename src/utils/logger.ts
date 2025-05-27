@@ -5,6 +5,7 @@ import os from 'os';
 import { LogMetadata } from './types';
 import Transport from 'winston-transport';
 import dotenv from 'dotenv';
+import { getCurrentTraceContext } from './telemetry';
 
 dotenv.config();
 
@@ -146,7 +147,13 @@ const consoleFormat = winston.format.printf(({ level, message, timestamp, ...met
   
   // Format timestamp and IDs
   const formattedDate = formatTimestamp(timestamp);
-  const idSection = formatIdSection(requestId, userId);
+  let idSection = formatIdSection(requestId, userId);
+  
+  // Añadir información de trazado si está disponible
+  const traceId = metadata.traceId || '';
+  if (traceId) {
+    idSection = `${idSection} [trace:${traceId.substring(0, 8)}]`;
+  }
   
   // HTTP request logs
   if (method && url) {
@@ -207,6 +214,8 @@ class MongoTransport extends Transport {
         stack: info.stack || '',
         functionName: info.functionName || '',
         lineNumber: info.lineNumber || 0,
+        traceId: info.traceId || '',
+        spanId: info.spanId || '',
         metadata: info.metadata || {},
       });
     } catch (error) {
@@ -289,6 +298,9 @@ export const requestLogger = (req: any, res: any, next: () => void): void => {
     // Determine log level based on status code
     const level = res.statusCode >= 400 ? 'warn' : 'http';
     
+    // Obtener contexto de trazado actual
+    const { traceId, spanId } = getCurrentTraceContext();
+    
     logger[level](`${req.method} ${req.originalUrl}`, {
       requestId,
       userId,
@@ -298,6 +310,8 @@ export const requestLogger = (req: any, res: any, next: () => void): void => {
       statusCode: res.statusCode,
       duration,
       userAgent: req.headers['user-agent'],
+      traceId,
+      spanId
     });
   });
 
@@ -306,10 +320,15 @@ export const requestLogger = (req: any, res: any, next: () => void): void => {
 
 // Function to log errors with stack trace
 export const logError = (error: Error, requestInfo: Partial<LogMetadata> = {}): void => {
+  // Obtener contexto de trazado actual
+  const traceContext = getCurrentTraceContext();
+  
   const errorInfo = {
     ...requestInfo,
     stack: error.stack,
     message: error.message,
+    traceId: requestInfo.traceId || traceContext.traceId,
+    spanId: requestInfo.spanId || traceContext.spanId,
   };
   
   logger.error(`Error: ${error.message}`, errorInfo);

@@ -27,6 +27,12 @@ export interface LogMetadata {
   totalItems?: number;
   totalBatches?: number;
   itemCount?: number;
+  
+  // Propiedades para trazado distribuido
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
+  traceFlags?: number;
 }  
   
 export interface AuthOverride {  

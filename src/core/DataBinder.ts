@@ -1,6 +1,7 @@
 import { Linker } from './Linker';
 import { BatchResponse, DatasourceMethodOptions, ResponseFormat } from '../datasources/types';
 import logger, { logError } from '../utils/logger';
+import { withSpan, recordOperation, SpanKind } from '../utils/telemetry';
 
 export interface DataBinderOptions {
   linker: Linker;
@@ -63,30 +64,53 @@ export class DataBinder {
    * @returns A promise that resolves to the fetched data
    */
   async fetchAll(options?: FetchOptions): Promise<any> {
-    const format = options?.responseFormat || this.responseFormat;
-    interface Datasource {
-      id: string;
-    }
+    return withSpan('DataBinder.fetchAll', async (span) => {
+      const format = options?.responseFormat || this.responseFormat;
+      interface Datasource {
+        id: string;
+      }
 
-    const datasourceIds: string[] = options?.datasourceIds ||
-      this.linker.datasources.map((ds: Datasource) => ds.id);
-    
-    logger.info('Fetching data from datasources', { datasourceIds, format, options });
-    
-    if (format === 'iterator') {
-      return this.createResultIterator(datasourceIds, options?.batchSize, options);
-    }
-    
-    const results: Record<string, any> = {};
+      const datasourceIds: string[] = options?.datasourceIds ||
+        this.linker.datasources.map((ds: Datasource) => ds.id);
+      
+      span.setAttribute('databinder.datasources.count', datasourceIds.length);
+      span.setAttribute('databinder.response_format', format);
+      
+      logger.info('Fetching data from datasources', { 
+        datasourceIds, 
+        format, 
+        options
+      });
+      
+      if (format === 'iterator') {
+        return this.createResultIterator(datasourceIds, options?.batchSize, options);
+      }
+      
+      const results: Record<string, any> = {};
 
-    for (const dsId of datasourceIds) {
-      logger.debug(`Fetching from datasource: ${dsId}`);
-      const result = await this.fetchFromDatasource(dsId, options || {});
-      results[dsId] = result;
-    }
+      for (const dsId of datasourceIds) {
+        logger.debug(`Fetching from datasource: ${dsId}`);
+        
+        // Crear child span para cada datasource
+        const childResult = await withSpan(`DataBinder.fetchFromDatasource(${dsId})`, async () => {
+          return this.fetchFromDatasource(dsId, options || {});
+        }, {
+          attributes: {
+            'databinder.datasource.id': dsId
+          }
+        });
+        
+        results[dsId] = childResult;
+      }
 
-    logger.info('Data fetching completed', { datasourceCount: datasourceIds.length });
-    return results;
+      logger.info('Data fetching completed', { datasourceCount: datasourceIds.length });
+      return results;
+    }, {
+      kind: SpanKind.INTERNAL,
+      attributes: {
+        'databinder.operation': 'fetchAll'
+      }
+    });
   }
 
   /**
@@ -104,35 +128,58 @@ export class DataBinder {
     // Sanitize datasource ID
     const safeDataSourceId = sanitizeString(datasourceId);
     
-    // Validate options
-    const validatedOptions = validateInput(options, baseFetchOptionsSchema.passthrough());
+    // Medición de tiempo
+    const startTime = Date.now();
+    let success = false;
     
-    const datasource = this.linker.getDatasource(safeDataSourceId);
-    if (!datasource) {
-      const error = new Error(`Datasource with ID '${safeDataSourceId}' not found`);
-      logError(error, { datasourceId: safeDataSourceId });
-      throw error;
-    }
-
-    const methodName = validatedOptions.methodName || 'default';
-    if (typeof datasource.methods[methodName] !== 'function') {
-      const error = new Error(`Method '${methodName}' not found in datasource '${safeDataSourceId}'`);
-      logError(error, { datasourceId: safeDataSourceId, methodName });
-      throw error;
-    }
-
     try {
-      logger.debug(`Executing method '${methodName}' on datasource '${safeDataSourceId}'`, { options: validatedOptions });
-      // Ensure we pass the datasource configuration
+      // Validate options
+      const validatedOptions = validateInput(options, baseFetchOptionsSchema.passthrough());
+      
+      const datasource = this.linker.getDatasource(safeDataSourceId);
+      if (!datasource) {
+        const error = new Error(`Datasource with ID '${safeDataSourceId}' not found`);
+        logError(error, { datasourceId: safeDataSourceId });
+        throw error;
+      }
+
+      const methodName = validatedOptions.methodName || 'default';
+      if (typeof datasource.methods[methodName] !== 'function') {
+        const error = new Error(`Method '${methodName}' not found in datasource '${safeDataSourceId}'`);
+        logError(error, { datasourceId: safeDataSourceId, methodName });
+        throw error;
+      }
+
+      logger.debug(`Executing method '${methodName}' on datasource '${safeDataSourceId}'`, { 
+        options: validatedOptions 
+      });
+      
+      // Ensure we pass the datasource configuration and ID
       const fetchOptions = {
         ...validatedOptions,
-        config: datasource.config // Add the configuration here
+        config: datasource.config,
+        datasourceId: safeDataSourceId
       };
-      return await datasource.methods[methodName](fetchOptions);
+      
+      const result = await datasource.methods[methodName](fetchOptions);
+      success = true;
+      return result;
     } catch (error) {
       const enhancedError = new Error(`Error fetching from datasource '${safeDataSourceId}': ${error instanceof Error ? error.message : String(error)}`);
-      logError(enhancedError, { datasourceId: safeDataSourceId, methodName, originalError: error });
+      logError(enhancedError, { datasourceId: safeDataSourceId, methodName: options.methodName || 'default', originalError: error });
       throw enhancedError;
+    } finally {
+      // Registrar métricas de la operación
+      const duration = Date.now() - startTime;
+      recordOperation(
+        'fetchFromDatasource',
+        success,
+        duration,
+        {
+          datasourceId: safeDataSourceId,
+          methodName: options.methodName || 'default'
+        }
+      );
     }
   }
 
