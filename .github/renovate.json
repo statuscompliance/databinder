@@ -104,7 +104,7 @@
   "baseBranches": [
     "develop"
   ],
-  "recreateClosed": true,
+  "recreateWhen": "always",
   "rebaseLabel": "rebase",
   "forkProcessing": "enabled"
 }
