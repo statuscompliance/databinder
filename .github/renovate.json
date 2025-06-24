@@ -105,5 +105,6 @@
     "develop"
   ],
   "recreateClosed": true,
-  "rebaseLabel": "rebase"
+  "rebaseLabel": "rebase",
+  "forkProcessing": "enabled"
 }
