@@ -1,5 +1,5 @@
 {
-  "name": "databinder",
+  "name": "@statuscompliance/databinder",
   "version": "1.0.0",
   "description": "A TypeScript library to simplify integration with data sources",
   "main": "dist/index.js",
