@@ -11,4 +11,6 @@ export * from './logger';
 // Export linker
 export * from './Linker';
 
+export * from './DataBinder';
+
 // Add any other core exports here
