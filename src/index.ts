@@ -10,6 +10,7 @@ export * from './core';
 
 // Export datasource types and implementations
 export * as Datasources from './datasources';
+export type { DatabaseAdapter, SerializedDatasourceInstance } from './datasources/types';
 
 // Export catalog functionality
 export * from './catalog';

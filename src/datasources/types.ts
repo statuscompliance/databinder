@@ -63,3 +63,23 @@ export interface SourceResponse<T = any> {
 }
 
 export type ResponseFormat = 'full' | 'iterator' | 'stream';
+
+export interface SerializedDatasourceInstance {
+  id: string;
+  definitionId: string;
+  config: DatasourceConfig;
+  metadata?: {
+    createdAt?: Date;
+    updatedAt?: Date;
+    tags?: string[];
+    description?: string;
+    [key: string]: any;
+  };
+}
+
+export interface DatabaseAdapter {
+  save(instances: SerializedDatasourceInstance[]): Promise<void>;
+  load(): Promise<SerializedDatasourceInstance[]>;
+  saveOne?(instance: SerializedDatasourceInstance): Promise<void>;
+  loadOne?(id: string): Promise<SerializedDatasourceInstance | null>;
+}

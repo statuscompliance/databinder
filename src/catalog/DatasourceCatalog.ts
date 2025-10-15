@@ -1,4 +1,4 @@
-import { Datasource, DatasourceConfig, DatasourceDefinition } from '../datasources/types';
+import { Datasource, DatasourceConfig, DatasourceDefinition, DatabaseAdapter, SerializedDatasourceInstance } from '../datasources/types';
 import fs from 'fs/promises';
 import path from 'path';
 import { validateInput } from '../utils/validation';
@@ -158,16 +158,30 @@ export class DatasourceCatalog {
   }
 
   /**
-   * Serializes all datasource instances to an array of simple objects
+   * Serializes all datasource instances to an array of simple objects with metadata
    * 
+   * @param includeMetadata - Whether to include metadata in serialization
    * @returns Array of serialized datasource instances
    */
-  serializeInstances(): Array<{ id: string, definitionId: string, config: DatasourceConfig }> {
-    return this.listDatasourceInstances().map(ds => ({
-      id: ds.id,
-      definitionId: ds.definitionId || 'unknown',
-      config: ds.config
-    }));
+  serializeInstances(includeMetadata: boolean = false): SerializedDatasourceInstance[] {
+    return this.listDatasourceInstances().map(ds => {
+      const serialized: SerializedDatasourceInstance = {
+        id: ds.id,
+        definitionId: ds.definitionId || 'unknown',
+        config: ds.config
+      };
+
+      if (includeMetadata) {
+        serialized.metadata = {
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          tags: [],
+          description: `Datasource instance of type ${ds.definitionId || 'unknown'}`
+        };
+      }
+
+      return serialized;
+    });
   }
 
   /**
@@ -176,7 +190,7 @@ export class DatasourceCatalog {
    * @param instances - Array of serialized datasource instances
    * @throws Error if a definition is not found or instance creation fails
    */
-  restoreInstances(instances: Array<{ id: string, definitionId: string, config: DatasourceConfig }>): void {
+  restoreInstances(instances: SerializedDatasourceInstance[]): void {
     for (const { id, definitionId, config } of instances) {
       try {
         this.createDatasourceInstance(definitionId, config, id);
@@ -190,10 +204,11 @@ export class DatasourceCatalog {
    * Saves all datasource instances to a JSON file
    * 
    * @param filePath - Path to save the instances file
+   * @param includeMetadata - Whether to include metadata in serialization
    * @returns Promise that resolves when file is written
    */
-  async saveInstancesToFile(filePath: string): Promise<void> {
-    const serialized = this.serializeInstances();
+  async saveInstancesToFile(filePath: string, includeMetadata: boolean = false): Promise<void> {
+    const serialized = this.serializeInstances(includeMetadata);
     const jsonContent = JSON.stringify(serialized, null, 2);
     
     // Sanitize file path
@@ -227,7 +242,13 @@ export class DatasourceCatalog {
           z.array(z.object({
             id: z.string(),
             definitionId: z.string(),
-            config: z.record(z.any())
+            config: z.record(z.any()),
+            metadata: z.object({
+              createdAt: z.date().optional(),
+              updatedAt: z.date().optional(),
+              tags: z.array(z.string()).optional(),
+              description: z.string().optional()
+            }).optional()
           }))
         );
         
@@ -243,6 +264,116 @@ export class DatasourceCatalog {
         // Other errors should be reported
         throw new Error(`Failed to load instances from file: ${error}`);
       }
+    }
+  }
+
+  /**
+   * Saves all datasource instances to a database using the provided adapter
+   * 
+   * @param adapter - Database adapter implementing the DatabaseAdapter interface
+   * @param includeMetadata - Whether to include metadata in serialization
+   * @returns Promise that resolves when instances are saved
+   */
+  async saveToDatabaseAdapter(adapter: DatabaseAdapter, includeMetadata: boolean = true): Promise<void> {
+    const serialized = this.serializeInstances(includeMetadata);
+    await adapter.save(serialized);
+  }
+
+  /**
+   * Loads datasource instances from a database using the provided adapter
+   * 
+   * @param adapter - Database adapter implementing the DatabaseAdapter interface
+   * @returns Promise that resolves when instances are loaded
+   */
+  async loadFromDatabaseAdapter(adapter: DatabaseAdapter): Promise<void> {
+    try {
+      const instances = await adapter.load();
+      this.restoreInstances(instances);
+    } catch (error) {
+      throw new Error(`Failed to load instances from database: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Restores a single datasource instance by creating it with the given parameters
+   * 
+   * @param id - The ID for the datasource instance
+   * @param definitionId - The ID of the datasource definition
+   * @param config - Configuration for the datasource instance
+   * @returns Promise that resolves to the created datasource instance
+   * @throws Error if the definition is not found or instance creation fails
+   */
+  async restoreInstance(id: string, definitionId: string, config: DatasourceConfig): Promise<Datasource> {
+    try {
+      return this.createDatasourceInstance(definitionId, config, id);
+    } catch (error) {
+      throw new Error(`Failed to restore instance ${id} of type ${definitionId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Saves a single datasource instance to database using the provided adapter
+   * 
+   * @param adapter - Database adapter implementing the DatabaseAdapter interface
+   * @param instanceId - ID of the instance to save
+   * @param includeMetadata - Whether to include metadata in serialization
+   * @returns Promise that resolves when instance is saved
+   * @throws Error if instance not found or adapter doesn't support single saves
+   */
+  async saveInstanceToDatabaseAdapter(adapter: DatabaseAdapter, instanceId: string, includeMetadata: boolean = true): Promise<void> {
+    if (!adapter.saveOne) {
+      throw new Error('Database adapter does not support saving single instances');
+    }
+
+    const instance = this.getDatasourceInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Datasource instance with ID '${instanceId}' not found`);
+    }
+
+    const serialized: SerializedDatasourceInstance = {
+      id: instance.id,
+      definitionId: instance.definitionId || 'unknown',
+      config: instance.config
+    };
+
+    if (includeMetadata) {
+      serialized.metadata = {
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        tags: [],
+        description: `Datasource instance of type ${instance.definitionId || 'unknown'}`
+      };
+    }
+
+    await adapter.saveOne(serialized);
+  }
+
+  /**
+   * Loads a single datasource instance from database using the provided adapter
+   * 
+   * @param adapter - Database adapter implementing the DatabaseAdapter interface
+   * @param instanceId - ID of the instance to load
+   * @returns Promise that resolves to the loaded datasource instance or null if not found
+   * @throws Error if adapter doesn't support single loads
+   */
+  async loadInstanceFromDatabaseAdapter(adapter: DatabaseAdapter, instanceId: string): Promise<Datasource | null> {
+    if (!adapter.loadOne) {
+      throw new Error('Database adapter does not support loading single instances');
+    }
+
+    try {
+      const serializedInstance = await adapter.loadOne(instanceId);
+      if (!serializedInstance) {
+        return null;
+      }
+
+      return await this.restoreInstance(
+        serializedInstance.id,
+        serializedInstance.definitionId,
+        serializedInstance.config
+      );
+    } catch (error) {
+      throw new Error(`Failed to load instance ${instanceId} from database: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
