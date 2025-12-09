@@ -119,6 +119,8 @@ export type OwnCloudDatasourceType = Datasource & {
     searchFiles: (options: OwnCloudMethodOptions & { pattern: string }) => Promise<WebDAVItem[]>;
     /** Get server info */
     getServerInfo: (options?: OwnCloudMethodOptions) => Promise<any>;
+    /** Test connection to ownCloud server */
+    test: (options?: OwnCloudMethodOptions) => Promise<any>;
   };
 };
 
@@ -607,6 +609,34 @@ export function createOwnCloudDatasource(config: OwnCloudConfig): OwnCloudDataso
               webdavRoot: config.webdavRoot || '/remote.php/dav/files',
               username: config.username,
               connected: items.length > 0,
+              timestamp: Date.now()
+            };
+          });
+        }, { kind: SpanKind.CLIENT });
+      },
+
+      /**
+       * Test connection to ownCloud server
+       */
+      test: async (options?: OwnCloudMethodOptions) => {
+        return withSpan('OwnCloud Test Connection', async (span) => {
+          span.setAttribute('owncloud.operation', 'test');
+          logger.debug('Testing OwnCloud connection');
+          
+          return withRetryIfEnabled(config, async () => {
+            // Simple test: try to list root directory
+            const webdavConfig = buildWebDAVConfig(config, {
+              ...options,
+              depth: '0'
+            });
+            
+            const items = await propfind(webdavConfig);
+            
+            return {
+              success: true,
+              connected: items.length >= 0,
+              baseUrl: config.baseUrl,
+              username: config.username,
               timestamp: Date.now()
             };
           });
