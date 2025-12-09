@@ -10,7 +10,7 @@ export const authOverrideSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
   headerValue: z.string().optional(),
-  cookies: z.record(z.string()).optional()
+  cookies: z.record(z.string(), z.string()).optional()
 });
 
 /**
@@ -20,8 +20,8 @@ export const baseFetchOptionsSchema = z.object({
   responseFormat: z.enum(['full', 'batch', 'iterator', 'stream']).optional(),
   datasourceIds: z.array(z.string()).optional(),
   batchSize: z.number().positive().optional(),
-  headers: z.record(z.string()).optional(),
-  cookies: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  cookies: z.record(z.string(), z.string()).optional(),
   authOverride: authOverrideSchema.optional(),
   endpoint: z.string().optional(),
   methodName: z.string().optional(),
@@ -35,7 +35,7 @@ export const baseFetchOptionsSchema = z.object({
     pageSize: z.number().optional()
   }).optional(),
   query: z.object({
-    filters: z.record(z.any()).optional(),
+    filters: z.record(z.string(), z.any()).optional(),
     sort: z.array(z.object({
       field: z.string(),
       direction: z.enum(['asc', 'desc'])
@@ -48,13 +48,13 @@ export const baseFetchOptionsSchema = z.object({
  */
 export const restApiConfigSchema = z.object({
   baseUrl: z.string().url(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   timeout: z.number().positive().optional(),
-  endpoints: z.record(z.string()).optional(),
+  endpoints: z.record(z.string(), z.string()).optional(),
   defaultEndpoint: z.string().optional(),
   auth: z.object({
     type: z.enum(['cookie', 'bearer', 'basic', 'custom']),
-    cookies: z.record(z.string()).optional(),
+    cookies: z.record(z.string(), z.string()).optional(),
     token: z.string().optional(),
     username: z.string().optional(),
     password: z.string().optional(),
@@ -68,15 +68,15 @@ export const restApiConfigSchema = z.object({
  * Esquema para validar opciones del método Rest API
  */
 export const restApiMethodOptionsSchema = z.object({
-  headers: z.record(z.string()).optional(),
-  cookies: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  cookies: z.record(z.string(), z.string()).optional(),
   authOverride: z.object({
     type: z.enum(['cookie', 'bearer', 'basic', 'custom']).optional(),
     token: z.string().optional(),
     username: z.string().optional(),
     password: z.string().optional(),
     headerValue: z.string().optional(),
-    cookies: z.record(z.string()).optional()
+    cookies: z.record(z.string(), z.string()).optional()
   }).optional(),
   endpoint: z.string().optional(),
   responseOptions: z.object({
@@ -123,8 +123,8 @@ export function validateInput<T>(data: unknown, schema: z.ZodSchema<T>): T {
       let receivedValue: any = undefined;
       
       if (firstIssue?.code === 'invalid_type') {
-        expectedType = (firstIssue as z.ZodInvalidTypeIssue).expected;
-        receivedValue = (firstIssue as z.ZodInvalidTypeIssue).received;
+        expectedType = (firstIssue as any).expected;
+        receivedValue = (firstIssue as any).received;
       }
       
       throw new InvalidConfigError(

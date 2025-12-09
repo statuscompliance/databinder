@@ -242,7 +242,7 @@ export class DatasourceCatalog {
           z.array(z.object({
             id: z.string(),
             definitionId: z.string(),
-            config: z.record(z.any()),
+            config: z.record(z.string(), z.any()),
             metadata: z.object({
               createdAt: z.date().optional(),
               updatedAt: z.date().optional(),
