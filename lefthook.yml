@@ -4,9 +4,6 @@ pre-commit:
       run: "npx eslint . --max-warnings=0 --cache --cache-location node_modules/.cache/eslint"
 
 commit-msg:
-  scripts:
-    "commitlint.sh":
-      runner: bash
   commands:
     commitlint:
-      run: "npx --no-install commitlint -e $1"
+      run: "npx --no-install commitlint --edit $1"
