@@ -1,360 +1,96 @@
 # Built-in Datasources
 
-DataBinder comes with several built-in datasource implementations for common APIs and services.
+DataBinder comes with several built-in datasource implementations for common APIs and services. Each datasource provides a specialized interface optimized for its respective service while maintaining consistency with the DataBinder architecture.
 
-## RestApiDatasource
+## Available Datasources
 
-A generic REST API datasource that can be configured to work with any RESTful API.
+### [REST API Datasource](./datasources/rest-api.md)
+A flexible, generic REST API datasource that can be configured to work with any RESTful API.
 
-### Configuration
+**Key Features:**
+- Multiple authentication methods (Bearer, Basic, Cookie, Custom)
+- Automatic retry logic with exponential backoff
+- Support for all HTTP methods (GET, POST, PUT, PATCH, DELETE)
+- Flexible response formats (full, batch, stream)
+- Built-in pagination and query support
 
-```typescript
-interface RestApiConfig {
-  baseUrl: string;                          // Base URL of the API
-  headers?: Record<string, string>;         // Default headers
-  timeout?: number;                         // Request timeout in ms
-  endpoints?: Record<string, string>;       // Named endpoints
-  defaultEndpoint?: string;                 // Default endpoint to use
-  auth?: {                                  // Authentication configuration
-    type: 'cookie' | 'bearer' | 'basic' | 'custom';
-    cookies?: Record<string, string>;
-    token?: string;
-    username?: string;
-    password?: string;
-    headerName?: string;
-    headerValue?: string;
-  };
-  requestOptions?: RequestInit;             // Additional fetch options
-}
-```
+**Use Cases:**
+- Custom REST APIs
+- Internal microservices
+- Third-party APIs without dedicated datasource
+- API prototyping and testing
 
-### Usage Example
+[📖 View REST API Documentation →](./datasources/rest-api.md)
 
-```typescript
-import { DatasourceCatalog } from '@statuscompliance/databinder';
-import { RestApiDatasource } from '@statuscompliance/databinder/Datasources';
+---
 
-const catalog = new DatasourceCatalog();
-catalog.registerDatasource(RestApiDatasource);
+### [GitHub API Datasource](./datasources/github-api.md)
+Specialized datasource for the GitHub REST API with pre-configured methods for common GitHub operations.
 
-// Create instance with bearer token auth
-const restApi = catalog.createDatasourceInstance('rest-api', {
-  baseUrl: 'https://api.example.com',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  auth: {
-    type: 'bearer',
-    token: 'your-api-token'
-  },
-  endpoints: {
-    users: '/users',
-    posts: '/posts',
-    comments: '/comments'
-  }
-}, 'my-rest-api');
+**Key Features:**
+- Pre-built methods for repositories, issues, PRs, users
+- Code and issue search capabilities
+- Automatic rate limit handling
+- Repository contents access
+- Organization and team management
 
-// Use with DataBinder
-const dataBinder = new DataBinder({ 
-  linker: new Linker({ datasources: [restApi] }) 
-});
+**Use Cases:**
+- Repository management automation
+- Issue and PR tracking
+- Code search and analysis
+- CI/CD integrations
+- Team collaboration tools
 
-// Fetch data using different methods
-const users = await dataBinder.fetchFromDatasource('my-rest-api', {
-  methodName: 'get',
-  endpoint: 'users',
-  query: {
-    filters: { active: true },
-    sort: [{ field: 'name', direction: 'asc' }]
-  }
-});
-```
+[📖 View GitHub API Documentation →](./datasources/github-api.md)
 
-### Available Methods
+---
 
-#### get(options)
-Performs GET requests to fetch data.
+### [Microsoft Graph Datasource](./datasources/microsoft-graph.md)
+Comprehensive datasource for Microsoft Graph API to access Microsoft 365 services.
 
-```typescript
-const data = await dataBinder.fetchFromDatasource('rest-api-id', {
-  methodName: 'get',
-  endpoint: '/users',
-  query: {
-    filters: { role: 'admin' },
-    sort: [{ field: 'created_at', direction: 'desc' }]
-  },
-  pagination: {
-    enabled: true,
-    pageSize: 50,
-    startPage: 1
-  }
-});
-```
+**Key Features:**
+- Azure AD user and group management
+- SharePoint and OneDrive integration
+- Email operations (Outlook)
+- Calendar and Teams access
+- OData query support
 
-#### post(options)
-Performs POST requests to create resources.
+**Use Cases:**
+- User provisioning and management
+- Document management in SharePoint
+- Email automation
+- Calendar synchronization
+- Microsoft 365 integrations
 
-```typescript
-const newUser = await dataBinder.fetchFromDatasource('rest-api-id', {
-  methodName: 'post',
-  endpoint: '/users',
-  body: {
-    name: 'John Doe',
-    email: 'john@example.com'
-  }
-});
-```
+[📖 View Microsoft Graph Documentation →](./datasources/microsoft-graph.md)
 
-#### put(options) / patch(options)
-Performs PUT/PATCH requests to update resources.
+---
 
-```typescript
-const updatedUser = await dataBinder.fetchFromDatasource('rest-api-id', {
-  methodName: 'patch',
-  endpoint: '/users/123',
-  body: { name: 'Jane Doe' }
-});
-```
+### [OwnCloud WebDAV Datasource](./datasources/owncloud.md)
+WebDAV-based datasource for ownCloud servers with document parsing capabilities.
 
-#### delete(options)
-Performs DELETE requests to remove resources.
+**Key Features:**
+- Full WebDAV protocol support
+- Document parsing (ODT, DOCX, PDF detection)
+- Metadata extraction
+- Recursive file operations
+- File search capabilities
+- Copy and move operations
 
-```typescript
-await dataBinder.fetchFromDatasource('rest-api-id', {
-  methodName: 'delete',
-  endpoint: '/users/123'
-});
-```
+**Use Cases:**
+- File storage integration
+- Document management systems
+- Content migration
+- Backup and sync operations
+- Self-hosted cloud storage
 
-### Authentication Types
+[📖 View OwnCloud Documentation →](./datasources/owncloud.md)
 
-#### Bearer Token
-```typescript
-auth: {
-  type: 'bearer',
-  token: 'your-jwt-token'
-}
-```
-
-#### Basic Authentication
-```typescript
-auth: {
-  type: 'basic',
-  username: 'user',
-  password: 'pass'
-}
-```
-
-#### Cookie Authentication
-```typescript
-auth: {
-  type: 'cookie',
-  cookies: {
-    'session_id': 'abc123',
-    'csrf_token': 'xyz789'
-  }
-}
-```
-
-#### Custom Header
-```typescript
-auth: {
-  type: 'custom',
-  headerName: 'X-API-Key',
-  headerValue: 'your-api-key'
-}
-```
-
-## GithubApiDatasource
-
-A specialized datasource for the GitHub REST API with pre-configured methods for common GitHub operations.
-
-### Configuration
-
-```typescript
-interface GithubApiConfig extends RestApiConfig {
-  personalAccessToken?: string;    // GitHub Personal Access Token
-  defaultOrg?: string;            // Default organization
-  defaultRepo?: string;           // Default repository
-  apiVersion?: string;            // API version (defaults to 'v3')
-}
-```
-
-### Usage Example
-
-```typescript
-import { GithubApiDatasource } from '@statuscompliance/databinder/Datasources';
-
-const catalog = new DatasourceCatalog();
-catalog.registerDatasource(GithubApiDatasource);
-
-const githubApi = catalog.createDatasourceInstance('github-api', {
-  personalAccessToken: 'ghp_xxxxxxxxxxxx',
-  defaultOrg: 'octocat',
-  apiVersion: 'v3'
-}, 'github-instance');
-```
-
-### Available Methods
-
-#### getUser(options)
-Fetches user information.
-
-```typescript
-const user = await dataBinder.fetchFromDatasource('github-instance', {
-  methodName: 'getUser',
-  username: 'octocat'  // Optional, uses authenticated user if not provided
-});
-```
-
-#### getRepository(options)
-Fetches repository information.
-
-```typescript
-const repo = await dataBinder.fetchFromDatasource('github-instance', {
-  methodName: 'getRepository',
-  owner: 'octocat',
-  repo: 'Hello-World'
-});
-```
-
-#### getRepositories(options)
-Fetches repositories for a user or organization.
-
-```typescript
-const repos = await dataBinder.fetchFromDatasource('github-instance', {
-  methodName: 'getRepositories',
-  owner: 'octocat',
-  type: 'public',  // 'public', 'private', 'all'
-  sort: 'updated',
-  pagination: {
-    enabled: true,
-    pageSize: 30
-  }
-});
-```
-
-#### getIssues(options)
-Fetches issues from a repository.
-
-```typescript
-const issues = await dataBinder.fetchFromDatasource('github-instance', {
-  methodName: 'getIssues',
-  owner: 'octocat',
-  repo: 'Hello-World',
-  state: 'open',  // 'open', 'closed', 'all'
-  labels: ['bug', 'help wanted']
-});
-```
-
-#### getPullRequests(options)
-Fetches pull requests from a repository.
-
-```typescript
-const prs = await dataBinder.fetchFromDatasource('github-instance', {
-  methodName: 'getPullRequests',
-  owner: 'octocat',
-  repo: 'Hello-World',
-  state: 'open',
-  sort: 'updated'
-});
-```
-
-#### getCommits(options)
-Fetches commits from a repository.
-
-```typescript
-const commits = await dataBinder.fetchFromDatasource('github-instance', {
-  methodName: 'getCommits',
-  owner: 'octocat',
-  repo: 'Hello-World',
-  branch: 'main',
-  since: '2024-01-01T00:00:00Z'
-});
-```
-
-## MicrosoftGraphDatasource
-
-A datasource for Microsoft Graph API to access Microsoft 365 services.
-
-### Configuration
-
-```typescript
-interface MicrosoftGraphConfig extends DatasourceConfig {
-  tenantId?: string;              // Azure AD tenant ID
-  clientId?: string;              // Application client ID
-  clientSecret?: string;          // Application client secret
-  scopes?: string[];             // OAuth scopes
-  accessToken?: string;          // Direct access token
-  apiVersion?: string;           // API version (defaults to 'v1.0')
-}
-```
-
-### Usage Example
-
-```typescript
-import { MicrosoftGraphDatasource } from '@statuscompliance/databinder/Datasources';
-
-const catalog = new DatasourceCatalog();
-catalog.registerDatasource(MicrosoftGraphDatasource);
-
-const graphApi = catalog.createDatasourceInstance('microsoft-graph', {
-  tenantId: 'your-tenant-id',
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
-  scopes: ['https://graph.microsoft.com/.default']
-}, 'graph-instance');
-```
-
-### Available Methods
-
-#### getUsers(options)
-Fetches users from Azure AD.
-
-```typescript
-const users = await dataBinder.fetchFromDatasource('graph-instance', {
-  methodName: 'getUsers',
-  filter: "startswith(displayName,'John')",
-  select: ['id', 'displayName', 'mail']
-});
-```
-
-#### getUser(options)
-Fetches a specific user.
-
-```typescript
-const user = await dataBinder.fetchFromDatasource('graph-instance', {
-  methodName: 'getUser',
-  userId: 'user@domain.com'
-});
-```
-
-#### getGroups(options)
-Fetches Azure AD groups.
-
-```typescript
-const groups = await dataBinder.fetchFromDatasource('graph-instance', {
-  methodName: 'getGroups',
-  filter: "groupTypes/any(c:c eq 'Unified')"  // Office 365 groups only
-});
-```
-
-#### getMessages(options)
-Fetches messages from a user's mailbox.
-
-```typescript
-const messages = await dataBinder.fetchFromDatasource('graph-instance', {
-  methodName: 'getMessages',
-  userId: 'user@domain.com',
-  folder: 'inbox',
-  filter: "isRead eq false"
-});
-```
+---
 
 ## Common Features
 
-All built-in datasources support:
+All built-in datasources share these powerful features:
 
 ### Pagination
 ```typescript
@@ -395,13 +131,20 @@ Built-in retry logic with exponential backoff for transient failures.
 Automatic OpenTelemetry spans for observability.
 
 ### Validation
-Input validation using Zod schemas.
+Input validation and schema validation for configurations.
+
+### Logging
+Integrated logging using the DataBinder logger for debugging and monitoring.
 
 ## Creating Custom Datasources
 
-You can create custom datasources by implementing the `DatasourceDefinition` interface:
+You can create custom datasources by implementing the `DatasourceDefinition` interface. See the [Core Functionality](./core-functionality.md) documentation for detailed examples.
+
+### Quick Example
 
 ```typescript
+import { DatasourceDefinition, DatasourceConfig, Datasource } from '@statuscompliance/databinder/datasources';
+
 const customDatasourceDefinition: DatasourceDefinition = {
   id: 'custom-api',
   name: 'Custom API',
@@ -414,18 +157,75 @@ const customDatasourceDefinition: DatasourceDefinition = {
     },
     required: ['apiKey', 'baseUrl']
   },
-  createInstance: (config) => ({
-    id: '',
+  createInstance: (config: DatasourceConfig): Datasource => ({
+    id: config.id || 'custom-api',
     definitionId: 'custom-api',
     config,
     methods: {
       getData: async (options) => {
         // Your implementation
-        return { data: [] };
+        const response = await fetch(`${config.baseUrl}/data`, {
+          headers: {
+            'Authorization': `Bearer ${config.apiKey}`
+          }
+        });
+        return await response.json();
       }
     }
   })
 };
 
+// Register and use
+const catalog = new DatasourceCatalog();
 catalog.registerDatasource(customDatasourceDefinition);
+
+const instance = catalog.createDatasourceInstance('custom-api', {
+  apiKey: 'your-key',
+  baseUrl: 'https://api.example.com'
+}, 'my-custom-api');
 ```
+
+### Extending REST API Datasource
+
+For REST-based APIs, you can extend the `RestApiDatasource`:
+
+```typescript
+import { createRestApiBasedDatasource } from '@statuscompliance/databinder/datasources';
+
+const MyApiDatasource = createRestApiBasedDatasource(
+  'my-api',
+  'My Custom API',
+  'Specialized datasource for My API',
+  {
+    baseUrl: 'https://api.myservice.com',
+    auth: { type: 'bearer' },
+    timeout: 10000
+  },
+  {
+    // Add custom methods
+    getWidgets: async (options) => {
+      // Implementation using fetchData utility
+      return await fetchData(config, '/widgets', options);
+    }
+  }
+);
+
+catalog.registerDatasource(MyApiDatasource);
+```
+
+## Next Steps
+
+- Explore individual datasource documentation for detailed usage
+- Learn about [Core Functionality](./core-functionality.md) for advanced patterns
+- Check out [Utilities](./utilities.md) for helper functions
+- Review the [Catalog](./catalog.md) for datasource management
+
+## Contributing
+
+Want to add a new datasource? Check our [Contributing Guidelines](../CONTRIBUTING.md) to learn how to create and submit new datasource implementations.
+
+## Support
+
+- 📖 [Full Documentation](../README.md)
+- 🐛 [Report Issues](https://github.com/statuscompliance/databinder/issues)
+- 💬 [Discussions](https://github.com/statuscompliance/databinder/discussions)

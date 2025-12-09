@@ -33,7 +33,18 @@ export {
   createMicrosoftGraphDatasource
 } from './implementations/MicrosoftGraphDatasource';
 
+// Export OwnCloud datasource
+export {
+  OwnCloudDatasource,
+  OwnCloudConfig,
+  OwnCloudMethodOptions,
+  OwnCloudDatasourceType,
+  createOwnCloudDatasource
+} from './implementations/OwnCloudDatasource';
+
 // Export utility modules
 export * from '../utils/retryUtils';
+export * from '../utils/webdavUtils';
+export * from '../utils/documentUtils';
 
 // Add more datasource exports here as needed
