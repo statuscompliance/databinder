@@ -1,5 +1,26 @@
 export type DatasourceConfig = Record<string, any>
 
+/**
+ * Metadata information for a datasource method
+ */
+export interface MethodMetadata {
+  /** Method name */
+  name: string;
+  /** Description of what the method does */
+  description?: string;
+  /** Zod schema for validating method options (stored as any for flexibility) */
+  optionsSchema?: any;
+  /** List of required option names */
+  requiredOptions?: string[];
+  /** Example usages of the method */
+  examples?: Array<{
+    description: string;
+    options: any;
+  }>;
+  /** Return type description */
+  returns?: string;
+}
+
 export interface Datasource {
   id: string;
   definitionId?: string; // ID of the definition used to create this instance
@@ -7,6 +28,8 @@ export interface Datasource {
   methods: {
     [key: string]: (options?: any) => Promise<any>;
   };
+  /** Optional metadata about available methods */
+  methodsMetadata?: Record<string, MethodMetadata>;
 }
 
 
@@ -28,6 +51,8 @@ export interface DatasourceMethodOptions {
   pagination?: PaginationOptions;
   query?: QueryOptions;
   batchSize?: number;
+  // Allow additional properties for datasource-specific options
+  [key: string]: any;
 }
 
 export interface DatasourceMethod {

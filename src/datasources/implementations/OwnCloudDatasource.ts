@@ -10,8 +10,10 @@ import {
   Datasource, 
   DatasourceConfig, 
   DatasourceDefinition,
-  DatasourceMethodOptions 
+  DatasourceMethodOptions,
+  MethodMetadata 
 } from '../types';
+import { z } from 'zod';
 import { 
   WebDAVRequestConfig,
   propfind,
@@ -197,6 +199,36 @@ export function createOwnCloudDatasource(config: OwnCloudConfig): OwnCloudDataso
     username: config.username,
     webdavRoot: config.webdavRoot || '/remote.php/dav/files'
   });
+
+  // Define Zod schemas for method options
+  const pathRequiredSchema = z.object({
+    path: z.string().min(1, 'path is required')
+  }).passthrough();
+
+  const pathOptionalSchema = z.object({
+    path: z.string().optional()
+  }).passthrough();
+
+  const uploadFileSchema = z.object({
+    path: z.string().min(1, 'path is required'),
+    content: z.any().refine(val => val !== undefined, 'content is required')
+  }).passthrough();
+
+  const copyMoveSchema = z.object({
+    path: z.string().min(1, 'path is required'),
+    destination: z.string().min(1, 'destination is required'),
+    overwrite: z.boolean().optional()
+  }).passthrough();
+
+  const searchSchema = z.object({
+    pattern: z.string().min(1, 'pattern is required'),
+    path: z.string().optional()
+  }).passthrough();
+
+  const listRecursiveSchema = z.object({
+    path: z.string().optional(),
+    maxDepth: z.number().positive().optional()
+  }).passthrough();
 
   return {
     id: config.id || 'owncloud',
@@ -641,6 +673,168 @@ export function createOwnCloudDatasource(config: OwnCloudConfig): OwnCloudDataso
             };
           });
         }, { kind: SpanKind.CLIENT });
+      }
+    },
+    methodsMetadata: {
+      getFileContent: {
+        name: 'getFileContent',
+        description: 'Get file content from ownCloud',
+        optionsSchema: pathRequiredSchema.extend({
+          asBinary: z.boolean().optional(),
+          fullResponse: z.boolean().optional()
+        }),
+        requiredOptions: ['path'],
+        returns: 'File content as string or ArrayBuffer',
+        examples: [{
+          description: 'Get text file content',
+          options: { path: 'Documents/example.txt' }
+        }, {
+          description: 'Get binary file content',
+          options: { path: 'Documents/example.pdf', asBinary: true }
+        }]
+      },
+      getDocument: {
+        name: 'getDocument',
+        description: 'Get parsed document with content and metadata',
+        optionsSchema: pathRequiredSchema,
+        requiredOptions: ['path'],
+        returns: 'ParsedDocument with content, metadata, and format',
+        examples: [{
+          description: 'Parse an ODT document',
+          options: { path: 'Documents/example.odt' }
+        }]
+      },
+      listCollections: {
+        name: 'listCollections',
+        description: 'List collections (directories) in the root or specified path',
+        optionsSchema: pathOptionalSchema,
+        requiredOptions: [],
+        returns: 'Array of WebDAVItem representing directories',
+        examples: [{
+          description: 'List collections in root',
+          options: {}
+        }]
+      },
+      listFiles: {
+        name: 'listFiles',
+        description: 'List files in a specific collection',
+        optionsSchema: pathRequiredSchema,
+        requiredOptions: ['path'],
+        returns: 'Array of WebDAVItem',
+        examples: [{
+          description: 'List files in Documents folder',
+          options: { path: 'Documents' }
+        }]
+      },
+      listRecursive: {
+        name: 'listRecursive',
+        description: 'List all items recursively from a starting path',
+        optionsSchema: listRecursiveSchema,
+        requiredOptions: [],
+        returns: 'Array of WebDAVItem',
+        examples: [{
+          description: 'List all items recursively with depth limit',
+          options: { path: '/', maxDepth: 5 }
+        }]
+      },
+      getFileProperties: {
+        name: 'getFileProperties',
+        description: 'Get properties and metadata for a specific file',
+        optionsSchema: pathRequiredSchema,
+        requiredOptions: ['path'],
+        returns: 'WebDAVItem with file properties',
+        examples: [{
+          description: 'Get file properties',
+          options: { path: 'Documents/example.odt' }
+        }]
+      },
+      uploadFile: {
+        name: 'uploadFile',
+        description: 'Upload a file to ownCloud',
+        optionsSchema: uploadFileSchema,
+        requiredOptions: ['path', 'content'],
+        returns: 'Upload result',
+        examples: [{
+          description: 'Upload text file',
+          options: { path: 'Documents/new.txt', content: 'Hello World' }
+        }]
+      },
+      delete: {
+        name: 'delete',
+        description: 'Delete a file or collection',
+        optionsSchema: pathRequiredSchema,
+        requiredOptions: ['path'],
+        returns: 'Deletion result',
+        examples: [{
+          description: 'Delete a file',
+          options: { path: 'Documents/old.txt' }
+        }]
+      },
+      createCollection: {
+        name: 'createCollection',
+        description: 'Create a new collection (directory)',
+        optionsSchema: pathRequiredSchema,
+        requiredOptions: ['path'],
+        returns: 'Creation result',
+        examples: [{
+          description: 'Create a new folder',
+          options: { path: 'NewFolder' }
+        }]
+      },
+      copy: {
+        name: 'copy',
+        description: 'Copy a file or collection to a new location',
+        optionsSchema: copyMoveSchema,
+        requiredOptions: ['path', 'destination'],
+        returns: 'Copy result',
+        examples: [{
+          description: 'Copy a file',
+          options: { path: 'Documents/file.txt', destination: 'Backup/file.txt' }
+        }]
+      },
+      move: {
+        name: 'move',
+        description: 'Move a file or collection to a new location',
+        optionsSchema: copyMoveSchema,
+        requiredOptions: ['path', 'destination'],
+        returns: 'Move result',
+        examples: [{
+          description: 'Move a file',
+          options: { path: 'Documents/file.txt', destination: 'Archive/file.txt' }
+        }]
+      },
+      searchFiles: {
+        name: 'searchFiles',
+        description: 'Search for files by name pattern',
+        optionsSchema: searchSchema,
+        requiredOptions: ['pattern'],
+        returns: 'Array of matching WebDAVItem',
+        examples: [{
+          description: 'Search for files matching pattern',
+          options: { pattern: 'example' }
+        }]
+      },
+      getServerInfo: {
+        name: 'getServerInfo',
+        description: 'Get server information and capabilities',
+        optionsSchema: z.object({}).passthrough(),
+        requiredOptions: [],
+        returns: 'Server information object',
+        examples: [{
+          description: 'Get server info',
+          options: {}
+        }]
+      },
+      test: {
+        name: 'test',
+        description: 'Test connection to ownCloud server',
+        optionsSchema: z.object({}).passthrough(),
+        requiredOptions: [],
+        returns: 'Connection test result',
+        examples: [{
+          description: 'Test connection',
+          options: {}
+        }]
       }
     }
   };

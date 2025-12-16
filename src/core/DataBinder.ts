@@ -59,8 +59,10 @@ export class DataBinder {
 
   /**
    * Fetches data from all configured datasources or a specific subset.
+   * Uses the method and options configured in the linker for each datasource.
+   * Options passed here will override the linker configuration.
    * 
-   * @param options - Options for fetching data
+   * @param options - Options for fetching data (will override linker config)
    * @returns A promise that resolves to the fetched data
    */
   async fetchAll(options?: FetchOptions): Promise<any> {
@@ -114,14 +116,15 @@ export class DataBinder {
   }
 
   /**
-   * Fetches data from a specific datasource
+   * Fetches data from a specific datasource using the method and options configured in the linker.
+   * Options passed here will be merged with (and override) the linker configuration.
    * 
    * @param datasourceId - ID of the datasource to fetch from
-   * @param options - Options for the fetch operation
+   * @param overrideOptions - Options that will override the linker configuration
    * @returns The fetched data
    * @throws Error if the datasource is not found or fetching fails
    */
-  async fetchFromDatasource(datasourceId: string, options: FetchOptions): Promise<any> {
+  async fetchFromDatasource(datasourceId: string, overrideOptions?: FetchOptions): Promise<any> {
     const { validateInput, baseFetchOptionsSchema } = require('../utils/validation');
     const { sanitizeString } = require('../utils/sanitize');
     
@@ -133,9 +136,6 @@ export class DataBinder {
     let success = false;
     
     try {
-      // Validate options
-      const validatedOptions = validateInput(options, baseFetchOptionsSchema.passthrough());
-      
       const datasource = this.linker.getDatasource(safeDataSourceId);
       if (!datasource) {
         const error = new Error(`Datasource with ID '${safeDataSourceId}' not found`);
@@ -143,30 +143,54 @@ export class DataBinder {
         throw error;
       }
 
-      const methodName = validatedOptions.methodName || 'default';
-      if (typeof datasource.methods[methodName] !== 'function') {
-        const error = new Error(`Method '${methodName}' not found in datasource '${safeDataSourceId}'`);
-        logError(error, { datasourceId: safeDataSourceId, methodName });
-        throw error;
-      }
-
-      logger.debug(`Executing method '${methodName}' on datasource '${safeDataSourceId}'`, { 
-        options: validatedOptions 
-      });
+      // Get the configured method and options from the linker
+      const { method, methodName, options: linkerOptions } = this.linker.getMethodForDatasource(safeDataSourceId);
       
-      // Ensure we pass the datasource configuration and ID
-      const fetchOptions = {
-        ...validatedOptions,
+      // Merge linker options with override options (override takes precedence)
+      const mergedOptions = {
+        ...linkerOptions,
+        ...overrideOptions,
         config: datasource.config,
         datasourceId: safeDataSourceId
       };
       
-      const result = await datasource.methods[methodName](fetchOptions);
+      // Validate merged options against method schema if available
+      const validationResult = this.linker.validateMethodOptions(
+        safeDataSourceId,
+        methodName,
+        mergedOptions
+      );
+      
+      if (!validationResult.success) {
+        const error = new Error(
+          `Invalid options for method '${methodName}' on datasource '${safeDataSourceId}': ${validationResult.errors?.join(', ')}`
+        );
+        logError(error, { 
+          datasourceId: safeDataSourceId, 
+          methodName,
+        });
+        throw error;
+      }
+      
+      // Use validated data if available, otherwise use merged options
+      const finalOptions = validationResult.validatedData || mergedOptions;
+      
+      // Validate with base schema
+      const validatedOptions = validateInput(finalOptions, baseFetchOptionsSchema.passthrough());
+
+      logger.debug(`Executing method '${methodName}' on datasource '${safeDataSourceId}'`, { 
+        linkerOptions,
+        overrideOptions,
+        finalOptions: validatedOptions,
+        validationPassed: validationResult.success
+      });
+      
+      const result = await method(validatedOptions);
       success = true;
       return result;
     } catch (error) {
       const enhancedError = new Error(`Error fetching from datasource '${safeDataSourceId}': ${error instanceof Error ? error.message : String(error)}`);
-      logError(enhancedError, { datasourceId: safeDataSourceId, methodName: options.methodName || 'default', originalError: error });
+      logError(enhancedError, { datasourceId: safeDataSourceId, originalError: error });
       throw enhancedError;
     } finally {
       // Registrar métricas de la operación
@@ -176,8 +200,7 @@ export class DataBinder {
         success,
         duration,
         {
-          datasourceId: safeDataSourceId,
-          methodName: options.methodName || 'default'
+          datasourceId: safeDataSourceId
         }
       );
     }
@@ -218,13 +241,14 @@ export class DataBinder {
     parentOptions?: FetchOptions
   ): AsyncGenerator<BatchResponse<any>, void, unknown> {
     for (const dsId of datasourceIds) {
-      const { method, options: methodOptions } = this.linker.getMethodForDatasource(dsId);
+      const { method, options: linkerOptions } = this.linker.getMethodForDatasource(dsId);
       const mapping = this.linker.getMappingForDatasource(dsId);
       
       try {
         // Fetch all data at once with no pagination to get complete dataset
+        // Merge linker options with parent options
         const options: any = {
-          ...methodOptions,
+          ...linkerOptions,
           ...parentOptions,
           pagination: {
             enabled: false

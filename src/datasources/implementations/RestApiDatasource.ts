@@ -3,8 +3,10 @@ import { Datasource,
   DatasourceDefinition, 
   DatasourceMethodOptions, 
   PaginationOptions, 
-  QueryOptions 
+  QueryOptions,
+  MethodMetadata 
 } from '../types';
+import { z } from 'zod';
 import { 
   NetworkError, 
   AuthenticationError, 
@@ -109,6 +111,30 @@ export function createRestApiDatasource(
     throw new Error('REST API datasource requires a baseUrl configuration');
   }
 
+  // Define Zod schemas for method options
+  const defaultMethodSchema = z.object({
+    endpoint: z.string().optional(),
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    body: z.any().optional()
+  }).passthrough();
+
+  const getByIdSchema = z.object({
+    id: z.string().min(1, 'id is required'),
+    endpoint: z.string().optional()
+  }).passthrough();
+
+  const searchSchema = z.object({
+    endpoint: z.string().optional(),
+    query: z.object({
+      filters: z.record(z.string(), z.any()).optional(),
+      sort: z.array(z.object({
+        field: z.string(),
+        direction: z.enum(['asc', 'desc'])
+      })).optional()
+    }).optional()
+  }).passthrough();
+
   return {
     id: '',
     config,
@@ -132,6 +158,55 @@ export function createRestApiDatasource(
         return fetchData(config, endpoint, options);
       },
       ...extraMethods
+    },
+    methodsMetadata: {
+      default: {
+        name: 'default',
+        description: 'Default method to fetch data from the REST API',
+        optionsSchema: defaultMethodSchema,
+        requiredOptions: [],
+        returns: 'API response data',
+        examples: [{
+          description: 'Fetch data from default endpoint',
+          options: {}
+        }, {
+          description: 'Fetch data from custom endpoint',
+          options: { endpoint: '/users' }
+        }, {
+          description: 'POST request with body',
+          options: { endpoint: '/users', method: 'POST', body: { name: 'John' } }
+        }]
+      },
+      getById: {
+        name: 'getById',
+        description: 'Fetch a specific resource by ID',
+        optionsSchema: getByIdSchema,
+        requiredOptions: ['id'],
+        returns: 'Single resource data',
+        examples: [{
+          description: 'Get user by ID',
+          options: { id: '123' }
+        }, {
+          description: 'Get item from custom endpoint',
+          options: { id: '456', endpoint: '/products' }
+        }]
+      },
+      search: {
+        name: 'search',
+        description: 'Search for resources with filters and sorting',
+        optionsSchema: searchSchema,
+        requiredOptions: [],
+        returns: 'Array of matching resources',
+        examples: [{
+          description: 'Search with filters',
+          options: { 
+            query: { 
+              filters: { status: 'active' },
+              sort: [{ field: 'createdAt', direction: 'desc' }]
+            }
+          }
+        }]
+      }
     }
   };
 }
