@@ -116,13 +116,14 @@ export class DataBinder {
   }
 
   /**
-   * Fetches data from a specific datasource using the method and options configured in the linker.
+   * Fetches data from a specific datasource.
+   * Can use a method specified in options, or fall back to the linker's configured default method.
    * Options passed here will be merged with (and override) the linker configuration.
    * 
    * @param datasourceId - ID of the datasource to fetch from
-   * @param overrideOptions - Options that will override the linker configuration
+   * @param overrideOptions - Options including optional methodName and other parameters
    * @returns The fetched data
-   * @throws Error if the datasource is not found or fetching fails
+   * @throws Error if the datasource is not found, method is not specified, or fetching fails
    */
   async fetchFromDatasource(datasourceId: string, overrideOptions?: FetchOptions): Promise<any> {
     const { validateInput, baseFetchOptionsSchema } = require('../utils/validation');
@@ -143,13 +144,39 @@ export class DataBinder {
         throw error;
       }
 
-      // Get the configured method and options from the linker
-      const { method, methodName, options: linkerOptions } = this.linker.getMethodForDatasource(safeDataSourceId);
+      // Determine which method to use
+      let method: (...args: any[]) => Promise<any>;
+      let methodName: string;
+      let linkerOptions: DatasourceMethodOptions | undefined;
+
+      // Priority 1: Use methodName from overrideOptions if provided
+      if (overrideOptions?.methodName) {
+        methodName = overrideOptions.methodName;
+        method = this.linker.getMethod(safeDataSourceId, methodName);
+        linkerOptions = undefined; // No linker options when using runtime method
+      } else {
+        // Priority 2: Use configured default method from linker
+        const configuredMethod = this.linker.getMethodForDatasource(safeDataSourceId);
+        
+        if (!configuredMethod) {
+          throw new Error(
+            `No method specified for datasource '${safeDataSourceId}'. ` +
+            `Either configure a default method in the linker or provide methodName in options.`
+          );
+        }
+        
+        method = configuredMethod.method;
+        methodName = configuredMethod.methodName;
+        linkerOptions = configuredMethod.options;
+      }
       
       // Merge linker options with override options (override takes precedence)
+      // Remove methodName from options as it's metadata, not a method parameter
+      const { methodName: _, ...optionsWithoutMethodName } = overrideOptions || {};
+      
       const mergedOptions = {
         ...linkerOptions,
-        ...overrideOptions,
+        ...optionsWithoutMethodName,
         config: datasource.config,
         datasourceId: safeDataSourceId
       };
@@ -241,7 +268,11 @@ export class DataBinder {
     parentOptions?: FetchOptions
   ): AsyncGenerator<BatchResponse<any>, void, unknown> {
     for (const dsId of datasourceIds) {
-      const { method, options: linkerOptions } = this.linker.getMethodForDatasource(dsId);
+      const methodConfig = this.linker.getMethodForDatasource(dsId);
+      if (!methodConfig) {
+        throw new Error(`No default method configured for datasource '${dsId}'. Please configure a method or use query() instead.`);
+      }
+      const { method, options: linkerOptions } = methodConfig;
       const mapping = this.linker.getMappingForDatasource(dsId);
       
       try {

@@ -1,6 +1,6 @@
 {
   "name": "@statuscompliance/databinder",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "A TypeScript library to simplify integration with data sources",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

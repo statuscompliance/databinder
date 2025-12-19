@@ -218,6 +218,19 @@ export function createMicrosoftGraphDatasource(
     };
   });
 
+  // Add introspection utility methods
+  wrapperInstance.listMethods = function() {
+    return Object.keys(this.methods);
+  };
+  
+  wrapperInstance.getMethodInfo = function(methodName: string) {
+    return this.methodsMetadata?.[methodName];
+  };
+  
+  wrapperInstance.getAllMethodsInfo = function() {
+    return this.methodsMetadata || {};
+  };
+
   return wrapperInstance;
 }
 

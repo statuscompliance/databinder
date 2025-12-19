@@ -210,7 +210,7 @@ export function parseWebDAVResponse(xmlText: string): WebDAVItem[] {
 export async function makeWebDAVRequest(
   config: WebDAVRequestConfig,
   method: string,
-  body?: string | ArrayBuffer | Buffer
+  body?: string | ArrayBuffer | Buffer | BodyInit
 ): Promise<Response> {
   const url = buildWebDAVUrl(config.baseUrl, config.username, config.path);
   
@@ -229,15 +229,24 @@ export async function makeWebDAVRequest(
     headers['Content-Type'] = 'application/xml; charset=utf-8';
   }
 
+  // Convert body to string for consistent handling across environments
+  let bodyInit: string | undefined = undefined;
+  if (body) {
+    if (body instanceof Buffer) {
+      bodyInit = body.toString();
+    } else if (body instanceof ArrayBuffer) {
+      bodyInit = new TextDecoder().decode(body);
+    } else {
+      bodyInit = body as string;
+    }
+  }
+
   const requestInit: RequestInit = {
     method,
     headers,
+    body: bodyInit,
     signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
   };
-
-  if (body) {
-    requestInit.body = body instanceof Buffer ? body.toString() : body;
-  }
 
   try {
     logger.debug(`Making WebDAV ${method} request`, { url, depth: config.depth });

@@ -374,6 +374,19 @@ export function createGithubApiDatasource(config: GithubApiConfig): GithubApiDat
     };
   });
   
+  // Add introspection utility methods
+  instance.listMethods = function() {
+    return Object.keys(this.methods);
+  };
+  
+  instance.getMethodInfo = function(methodName: string) {
+    return this.methodsMetadata?.[methodName];
+  };
+  
+  instance.getAllMethodsInfo = function() {
+    return this.methodsMetadata || {};
+  };
+  
   return instance;
 }
 

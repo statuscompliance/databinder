@@ -207,6 +207,19 @@ export function createRestApiDatasource(
           }
         }]
       }
+    },
+    
+    // Introspection utility methods
+    listMethods: function() {
+      return Object.keys(this.methods);
+    },
+    
+    getMethodInfo: function(methodName: string) {
+      return this.methodsMetadata?.[methodName];
+    },
+    
+    getAllMethodsInfo: function() {
+      return this.methodsMetadata || {};
     }
   };
 }

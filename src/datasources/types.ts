@@ -30,6 +30,14 @@ export interface Datasource {
   };
   /** Optional metadata about available methods */
   methodsMetadata?: Record<string, MethodMetadata>;
+  
+  // Utility methods for introspection
+  /** Lists all available method names */
+  listMethods?: () => string[];
+  /** Gets metadata for a specific method */
+  getMethodInfo?: (methodName: string) => MethodMetadata | undefined;
+  /** Gets metadata for all methods */
+  getAllMethodsInfo?: () => Record<string, MethodMetadata>;
 }
 
 

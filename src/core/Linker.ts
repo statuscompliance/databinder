@@ -11,7 +11,7 @@ export interface DatasourceMethodConfig {
 
 export interface DatasourceConfig {
   id: string;
-  methodConfig: DatasourceMethodConfig;
+  methodConfig?: DatasourceMethodConfig; // Optional - if not provided, method must be specified at runtime
   propertyMapping?: PropertyMapping;
 }
 
@@ -40,15 +40,13 @@ export class Linker {
     this.datasourceConfigs = options.datasourceConfigs;
     this.defaultMethodName = 'default';
     
-    // Validate that all datasources have configuration
+    // Validate configurations if provided
     for (const datasource of this.datasources) {
-      if (!this.datasourceConfigs[datasource.id]) {
-        throw new Error(`Datasource '${datasource.id}' is missing required configuration (methodConfig is required)`);
-      }
-      
       const config = this.datasourceConfigs[datasource.id];
-      if (!config.methodConfig || !config.methodConfig.methodName) {
-        throw new Error(`Datasource '${datasource.id}' configuration must include methodConfig with methodName`);
+      
+      // If config exists and has methodConfig, validate it has methodName
+      if (config?.methodConfig && !config.methodConfig.methodName) {
+        throw new Error(`Datasource '${datasource.id}' methodConfig must include methodName`);
       }
     }
   }
@@ -64,33 +62,33 @@ export class Linker {
   }
 
   /**
-   * Gets the method to call for a specific datasource.
-   * Uses the configured method from datasourceConfigs.
+   * Gets the default configured method for a specific datasource.
+   * Returns undefined if no default method is configured.
    * 
    * @param datasourceId - The ID of the datasource
-   * @returns An object containing the method, method name, and options
-   * @throws Error if the datasource or method is not found
+   * @returns An object containing the method, method name, and options, or undefined if no config
+   * @throws Error if the datasource is not found or the configured method doesn't exist
    */
   getMethodForDatasource(datasourceId: string): {
     method: (...args: any[]) => Promise<any>;
     methodName: string;
     options?: DatasourceMethodOptions;
-  } {
+  } | undefined {
     const datasource = this.getDatasource(datasourceId);
     if (!datasource) {
       throw new Error(`Datasource with ID '${datasourceId}' not found in linker`);
     }
 
     const config = this.datasourceConfigs[datasourceId];
-    if (!config || !config.methodConfig) {
-      throw new Error(`No method configuration found for datasource '${datasourceId}'`);
+    if (!config?.methodConfig) {
+      return undefined; // No default method configured
     }
     
     const methodName = config.methodConfig.methodName;
     const method = datasource.methods[methodName];
     
     if (!method) {
-      throw new Error(`Method '${methodName}' not found in datasource '${datasourceId}'`);
+      throw new Error(`Configured method '${methodName}' not found in datasource '${datasourceId}'`);
     }
 
     return {
@@ -111,23 +109,49 @@ export class Linker {
   }
 
   /**
-   * Adds a datasource to the linker with required configuration.
+   * Gets a specific method from a datasource by name.
+   * This allows calling any method on a datasource, not just the configured default.
+   * 
+   * @param datasourceId - The ID of the datasource
+   * @param methodName - The name of the method to retrieve
+   * @returns The method function
+   * @throws Error if the datasource or method is not found
+   */
+  getMethod(datasourceId: string, methodName: string): (...args: any[]) => Promise<any> {
+    const datasource = this.getDatasource(datasourceId);
+    if (!datasource) {
+      throw new Error(`Datasource with ID '${datasourceId}' not found in linker`);
+    }
+
+    const method = datasource.methods[methodName];
+    if (!method) {
+      throw new Error(`Method '${methodName}' not found in datasource '${datasourceId}'`);
+    }
+
+    return method;
+  }
+
+  /**
+   * Adds a datasource to the linker with optional configuration.
    * 
    * @param datasource - The datasource to add
-   * @param config - Configuration for the datasource (methodConfig is required)
-   * @throws Error if a datasource with the same ID already exists or if config is missing methodConfig
+   * @param config - Optional configuration for the datasource
+   * @throws Error if a datasource with the same ID already exists or if methodConfig is invalid
    */
-  addDatasource(datasource: Datasource, config: DatasourceConfig): void {
+  addDatasource(datasource: Datasource, config?: DatasourceConfig): void {
     if (this.datasources.some(ds => ds.id === datasource.id)) {
       throw new Error(`Datasource with ID '${datasource.id}' already exists in linker`);
     }
     
-    if (!config.methodConfig || !config.methodConfig.methodName) {
-      throw new Error(`Configuration for datasource '${datasource.id}' must include methodConfig with methodName`);
+    // If config is provided and has methodConfig, validate it
+    if (config?.methodConfig && !config.methodConfig.methodName) {
+      throw new Error(`Configuration for datasource '${datasource.id}' methodConfig must include methodName`);
     }
     
     this.datasources.push(datasource);
-    this.datasourceConfigs[datasource.id] = config;
+    if (config) {
+      this.datasourceConfigs[datasource.id] = config;
+    }
   }
 
   /**
