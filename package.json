@@ -23,13 +23,13 @@
   "author": "alvarobernal2412",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@commitlint/cli": "20.3.1",
-    "@commitlint/config-conventional": "20.3.1",
+    "@commitlint/cli": "20.4.1",
+    "@commitlint/config-conventional": "20.4.1",
     "@eslint/js": "9.39.2",
-    "@evilmartians/lefthook": "2.0.16",
+    "@evilmartians/lefthook": "2.1.0",
     "@stylistic/eslint-plugin": "5.7.1",
-    "@types/node": "24.10.9",
-    "commitlint": "20.3.1",
+    "@types/node": "24.10.11",
+    "commitlint": "20.4.1",
     "eslint": "9.39.2",
     "ts-node": "10.9.2",
     "typescript": "5.9.3"
