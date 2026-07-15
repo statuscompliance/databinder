@@ -25,12 +25,12 @@
   "devDependencies": {
     "@commitlint/cli": "20.5.3",
     "@commitlint/config-conventional": "20.5.3",
-    "@eslint/js": "9.39.4",
+    "@eslint/js": "9.39.5",
     "@evilmartians/lefthook": "2.1.10",
     "@stylistic/eslint-plugin": "5.10.0",
     "@types/node": "24.13.3",
     "commitlint": "20.5.3",
-    "eslint": "9.39.4",
+    "eslint": "9.39.5",
     "ts-node": "10.9.2",
     "typescript": "5.9.3"
   },
