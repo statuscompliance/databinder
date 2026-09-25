@@ -28,7 +28,7 @@
     "@eslint/js": "9.39.5",
     "@evilmartians/lefthook": "2.1.14",
     "@stylistic/eslint-plugin": "5.10.0",
-    "@types/node": "24.13.5",
+    "@types/node": "24.13.6",
     "commitlint": "20.5.3",
     "eslint": "9.39.5",
     "ts-node": "10.9.2",
